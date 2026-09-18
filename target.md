@@ -225,13 +225,13 @@ rag/
 │   │   ├── database/
 │   │   │   ├── client.py
 │   │   │   ├── entities/
-│   │   │   │   ├── knowledge_base.py
 │   │   │   │   ├── document.py
-│   │   │   │   └── chunk.py
+│   │   │   │   ├── chunk.py
+│   │   │   │   └── index_job.py
 │   │   │   └── repositories/
-│   │   │       ├── knowledge_base_repository.py
 │   │   │       ├── document_repository.py
-│   │   │       └── chunk_repository.py
+│   │   │       ├── chunk_repository.py
+│   │   │       └── index_job_repository.py
 │   │   ├── vector_store/
 │   │   │   ├── client.py
 │   │   │   ├── entities/
@@ -247,21 +247,20 @@ rag/
 │   │   ├── reindex_document.py
 │   │   ├── search_knowledge.py
 │   │   ├── get_document_chunk.py
-│   │   └── list_knowledge_bases.py
+│   │   └── list_documents.py
 │   └── interfaces/
 │       ├── http/
 │       │   ├── app.py
 │       │   ├── schemas/
 │       │   └── routes/
 │       │       ├── documents.py
-│       │       ├── search.py
-│       │       └── knowledge_bases.py
+│       │       └── search.py
 │       └── mcp/
 │           ├── server.py
 │           └── tools/
 │               ├── search_knowledge.py
 │               ├── get_document_chunk.py
-│               └── list_knowledge_bases.py
+│               └── list_documents.py
 └── tests/
     ├── core/
     ├── infrastructure/
@@ -285,3 +284,21 @@ rag/
 HTTP / MCP -> use_cases -> core + infrastructure repositories
                               -> PostgreSQL / Qdrant / Ollama Embedding
 ```
+
+## 数据结构约定
+
+当前以单个文档作为最大业务单位，不建立 Knowledge Base：
+
+```text
+documents 1 ── N chunks
+    │
+    └── N index_jobs
+```
+
+- `documents`：保存完整文档的来源、状态和当前版本。
+- `chunks`：保存文档切分后的内容；`chunk.id` 同时作为 Qdrant Point ID。
+- `index_jobs`：记录文档写入、重建和删除 Qdrant 索引的执行状态，支持失败重试。
+- PostgreSQL 是事实来源；Qdrant 只是可从 PostgreSQL 重建的检索索引。
+- Embedding 只保存到 Qdrant，不使用 `pgvector`。
+- Qdrant 使用单个 `rag_chunks` Collection，查询通过 `document_id` 和 `active = true` 过滤。
+- 当前不建立 `knowledge_bases`、`document_versions`；需要组织多个文档时再增加 `collections`。
