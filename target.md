@@ -189,3 +189,99 @@ Resources
 - 工具失败时返回清晰错误，不无限重试。
 
 最终成果：一个简单、可测试、可观察的单 Agent；暂不学习多 Agent。
+
+# 当前项目架构
+
+以下结构是当前实现约定。RAG 服务只负责文档处理、索引和检索，不负责调用 LLM 生成答案；前文遗留的 `answer`、`AnswerService` 和 `answer_with_sources` 设计不再采用。答案生成由外部 Agent 完成。
+
+```text
+rag/
+├── AGENTS.md
+├── target.md
+├── pyproject.toml
+├── README.md
+├── .env.example
+├── prisma/
+│   ├── schema.prisma
+│   └── migrations/
+├── src/rag/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── config.py
+│   ├── core/
+│   │   ├── document_processing/
+│   │   │   ├── parser.py
+│   │   │   ├── cleaner.py
+│   │   │   └── chunker.py
+│   │   ├── embedding/
+│   │   │   └── embedder.py
+│   │   └── retrieval/
+│   │       ├── models.py
+│   │       ├── vector_search.py
+│   │       ├── keyword_search.py
+│   │       ├── fusion.py
+│   │       └── reranker.py
+│   ├── infrastructure/
+│   │   ├── database/
+│   │   │   ├── client.py
+│   │   │   ├── entities/
+│   │   │   │   ├── knowledge_base.py
+│   │   │   │   ├── document.py
+│   │   │   │   └── chunk.py
+│   │   │   └── repositories/
+│   │   │       ├── knowledge_base_repository.py
+│   │   │       ├── document_repository.py
+│   │   │       └── chunk_repository.py
+│   │   ├── vector_store/
+│   │   │   ├── client.py
+│   │   │   ├── entities/
+│   │   │   │   ├── vector_record.py
+│   │   │   │   └── search_hit.py
+│   │   │   └── repositories/
+│   │   │       └── vector_repository.py
+│   │   └── embedding/
+│   │       └── ollama_embedder.py
+│   ├── use_cases/
+│   │   ├── ingest_document.py
+│   │   ├── delete_document.py
+│   │   ├── reindex_document.py
+│   │   ├── search_knowledge.py
+│   │   ├── get_document_chunk.py
+│   │   └── list_knowledge_bases.py
+│   └── interfaces/
+│       ├── http/
+│       │   ├── app.py
+│       │   ├── schemas/
+│       │   └── routes/
+│       │       ├── documents.py
+│       │       ├── search.py
+│       │       └── knowledge_bases.py
+│       └── mcp/
+│           ├── server.py
+│           └── tools/
+│               ├── search_knowledge.py
+│               ├── get_document_chunk.py
+│               └── list_knowledge_bases.py
+└── tests/
+    ├── core/
+    ├── infrastructure/
+    ├── use_cases/
+    └── interfaces/
+```
+
+## 分层职责
+
+- `core`：文档处理、Embedding 抽象和检索算法等核心逻辑。
+- `use_cases`：每个文件完成一个明确的业务动作，并组合 Core 与 Repository。
+- `interfaces`：HTTP 和 MCP 的协议转换，不包含业务逻辑。
+- `infrastructure`：PostgreSQL、Qdrant 和 Ollama Embedding 等外部服务实现。
+- `entities`：跟随拥有这些数据的基础设施模块；没有独立数据结构的模块不建立 `entities`。
+- `repositories`：负责对应实体的存取。
+- `prisma/schema.prisma`：PostgreSQL 表结构的唯一来源；迁移文件存放于 `prisma/migrations`。
+
+依赖方向：
+
+```text
+HTTP / MCP -> use_cases -> core + infrastructure repositories
+                              -> PostgreSQL / Qdrant / Ollama Embedding
+```
