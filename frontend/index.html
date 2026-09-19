@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#13231e">
+  <title>RAG Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css"><link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <a class="brand" href="#/documents"><span class="logo"><i class="ph ph-database"></i></span><span><b>RAG Console</b><small>本地检索控制台</small></span></a>
+      <nav>
+        <a href="#/documents" data-nav="documents"><i class="ph ph-files"></i>文档</a>
+        <a href="#/documents/new" data-nav="new"><i class="ph ph-file-plus"></i>录入文档</a>
+        <a href="#/search" data-nav="search"><i class="ph ph-magnifying-glass"></i>检索</a>
+        <a href="#/chunks" data-nav="chunks"><i class="ph ph-grid-four"></i>Chunk 查询</a>
+        <a href="#/system" data-nav="system"><i class="ph ph-pulse"></i>系统状态</a>
+      </nav>
+      <footer><div id="side-health"><span class="dot wait"></span>检查服务中</div><p><a href="/docs" target="_blank">Swagger</a><a href="/mcp" target="_blank">MCP</a></p><small>developer mode · v0.1.0</small></footer>
+    </aside>
+    <div class="work">
+      <header><button id="menu" class="icon mobile"><i class="ph ph-list"></i></button><div id="crumb"></div><div id="top-health"><span class="dot wait"></span>连接中</div></header>
+      <main id="app" tabindex="-1"></main>
+    </div>
+  </div>
+  <div id="toast" role="status"></div>
+  <template id="top-k-contract"><input type="number" min="1" max="10"></template>
+  <script src="/ui/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SourceType {
+  markdown
+  text
+  pdf
+  word
+  excel
+  powerpoint
+  html
+}
+
+enum DocumentStatus {
+  pending
+  indexing
+  ready
+  failed
+  deleting
+  deleted
+}
+
+model Document {
+  id             String         @id @db.Uuid
+  sourceUri      String         @unique @map("source_uri")
+  title          String?
+  sourceType     SourceType     @map("source_type")
+  content        String
+  contentHash    String         @map("content_hash")
+  currentVersion Int            @default(1) @map("current_version")
+  status         DocumentStatus
+  lastError      String?        @map("last_error")
+  metadata       Json           @default("{}")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chunks         Chunk[]
+
+  @@map("documents")
+}
+
+model Chunk {
+  id          String   @id @db.Uuid
+  documentId  String   @map("document_id") @db.Uuid
+  version     Int
+  chunkIndex  Int      @map("chunk_index")
+  content     String
+  startLine   Int?     @map("start_line")
+  endLine     Int?     @map("end_line")
+  tokenCount  Int?     @map("token_count")
+  metadata    Json     @default("{}")
+  active      Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@unique([documentId, version, chunkIndex])
+  @@index([documentId, active])
+  @@index([documentId, version])
+  @@map("chunks")
+}

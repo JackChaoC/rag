@@ -226,12 +226,10 @@ rag/
 │   │   │   ├── client.py
 │   │   │   ├── entities/
 │   │   │   │   ├── document.py
-│   │   │   │   ├── chunk.py
-│   │   │   │   └── index_job.py
+│   │   │   │   └── chunk.py
 │   │   │   └── repositories/
 │   │   │       ├── document_repository.py
-│   │   │       ├── chunk_repository.py
-│   │   │       └── index_job_repository.py
+│   │   │       └── chunk_repository.py
 │   │   ├── vector_store/
 │   │   │   ├── client.py
 │   │   │   ├── entities/
@@ -282,8 +280,34 @@ rag/
 
 ```text
 HTTP / MCP -> use_cases -> core + infrastructure repositories
-                              -> PostgreSQL / Qdrant / Ollama Embedding
+                              -> PostgreSQL / RabbitMQ
+Worker     -> RabbitMQ -> PostgreSQL / Ollama Embedding / Qdrant
 ```
+
+## 文档解析与 Embedding Pipeline
+
+使用 Microsoft MarkItDown 作为文档进入 Embedding Pipeline 的统一解析环节。它负责把 PDF、Word、Excel、PowerPoint、HTML 等受支持的原始文件转换为 Markdown，使后续清洗和切块不需要分别处理每种文件格式。
+
+```text
+原始文件
+  -> MarkItDown 转换为 Markdown
+  -> cleaner 清洗和规范化
+  -> chunker 按 Markdown 结构切块
+  -> 生成 Chunk Metadata
+  -> PostgreSQL 保存 Document 和 Chunk
+  -> RabbitMQ 发布索引任务
+  -> Worker 调用 Ollama Embedding 生成向量
+  -> Qdrant 只写入 Chunk ID 和向量
+```
+
+- `core/document_processing/parser.py` 封装 MarkItDown，对上层提供统一的文档解析接口。
+- MarkItDown 只负责格式转换和尽量保留标题、列表、表格、链接等文档结构，不负责清洗、切块、Embedding 或检索。
+- 原生 Markdown 和普通文本也通过同一解析接口进入后续流程，避免 use case 感知具体文件格式。
+- MarkItDown 的输出先经过 `cleaner` 和 `chunker`，不能直接生成 Embedding。
+- 解析失败时终止本次索引，不向 RabbitMQ 发布任务，也不向 Qdrant 写入不完整数据，并通过 Document 状态和错误字段保留可诊断信息。
+- 第一版只启用项目明确支持且有测试覆盖的格式；新增格式时需要补充解析和端到端索引测试。
+
+验收目标：能够输入至少一种非 Markdown 文档，通过 MarkItDown 转换、清洗、切块、Embedding 后写入 Qdrant；转换后的标题、列表或表格结构可以在 Chunk 内容中检查，解析失败不会产生残留向量。
 
 ## 数据结构约定
 
@@ -291,14 +315,108 @@ HTTP / MCP -> use_cases -> core + infrastructure repositories
 
 ```text
 documents 1 ── N chunks
-    │
-    └── N index_jobs
 ```
 
-- `documents`：保存完整文档的来源、状态和当前版本。
-- `chunks`：保存文档切分后的内容；`chunk.id` 同时作为 Qdrant Point ID。
-- `index_jobs`：记录文档写入、重建和删除 Qdrant 索引的执行状态，支持失败重试。
+### Document
+
+`documents` 是文档事实数据的根实体。MarkItDown 转换后的完整 Markdown 文本保存在 PostgreSQL，用于重新清洗和切块。
+
+```text
+documents
+├── id               UUID PK
+├── source_uri       TEXT UNIQUE
+├── title            TEXT NULL
+├── source_type      ENUM
+├── content          TEXT
+├── content_hash     TEXT
+├── current_version  INT DEFAULT 1
+├── status           ENUM
+├── last_error       TEXT NULL
+├── metadata         JSONB DEFAULT {}
+├── created_at       TIMESTAMPTZ
+└── updated_at       TIMESTAMPTZ
+```
+
+- `content` 保存 MarkItDown 的完整 Markdown 输出，不保存 Embedding。
+- `content_hash` 根据 `content` 计算，用于识别内容是否变化和避免无效重建。
+- `status` 使用 `pending`、`indexing`、`ready`、`failed`、`deleting`、`deleted`。
+- `last_error` 保存最近一次处理失败的可诊断错误；成功后清空。
+
+### Chunk
+
+`chunks` 保存切块后的文本和引用信息，是 Qdrant 向量的 PostgreSQL 事实来源。
+
+```text
+chunks
+├── id            UUID PK
+├── document_id   UUID FK -> documents.id
+├── version       INT
+├── chunk_index   INT
+├── content       TEXT
+├── start_line    INT NULL
+├── end_line      INT NULL
+├── token_count   INT NULL
+├── metadata      JSONB DEFAULT {}
+├── active        BOOLEAN
+└── created_at    TIMESTAMPTZ
+```
+
+- `id` 同时作为 Qdrant Point ID。
+- 同一文档版本中 `chunk_index` 从 `0` 开始，并使用 `UNIQUE(document_id, version, chunk_index)` 保证顺序唯一。
+- `start_line` 和 `end_line` 使用从 `1` 开始且包含边界的原文行号；无法稳定定位时允许为空。
+- 文档重建成功后，旧 Chunk 必须停用，其对应的 Qdrant Point 必须物理删除。
+
+### Qdrant Point
+
+Qdrant 使用单个 `rag_chunks` Collection，只保存 Chunk ID 和 Dense Vector，不保存 Payload。
+
+```text
+rag_chunks Point
+├── id      UUID = chunks.id
+└── vector  FLOAT32[embedding_dimension]
+```
+
+- `embedding_dimension` 由选定的 Embedding 模型决定，Collection 中所有向量维度必须一致。
+- 相似度度量遵循 Embedding 模型要求；没有特别要求时使用 `Cosine`。
+- Qdrant 搜索只返回 `chunk_id` 和 `score`，再按 ID 到 PostgreSQL 批量读取 `chunks.content` 及来源信息，并按 Qdrant 排名恢复顺序。
+- 因为没有 Payload，Qdrant 不承担 `document_id`、`active`、版本或 Metadata 过滤；无效 Point 必须及时删除。
+
+### RabbitMQ 索引任务拓扑
+
+不建立 `index_jobs` 表。FastAPI 是生产者，Python Worker 是消费者，RabbitMQ 负责索引任务的投递、确认、重投和死信隔离。
+
+```text
+Exchange: rag.indexing
+├── type: direct
+├── durable: true
+└── routing keys
+    ├── document.ingest
+    ├── document.reindex
+    └── document.delete
+
+Queue: rag.indexing.jobs
+├── durable: true
+├── bound to: rag.indexing
+└── consumes: document.ingest / document.reindex / document.delete
+
+Dead-letter Exchange: rag.indexing.dlx
+├── type: direct
+└── durable: true
+
+Dead-letter Queue: rag.indexing.dead
+├── durable: true
+└── bound to: rag.indexing.dlx
+```
+
+- 生产者 Channel 开启 Publisher Confirms，发布持久消息；确认 Broker 接收后 FastAPI 才认为任务已提交。
+- 消费者 Channel 使用手动 ACK 和有界 `prefetch_count`；只有 PostgreSQL 状态更新与 Qdrant 操作成功后才 ACK。
+- 可恢复错误进行有上限的重试；超过上限后投递到 `rag.indexing.dead`，同时将 `documents.status` 置为 `failed` 并记录 `last_error`。
+- 消息体只传递 `document_id`、`operation`、`version` 和必要的重试头，不传递文档正文、Chunk 内容或向量。
+- 所有 Worker 操作必须幂等：同一 Chunk 重复写入使用同一 Point ID，重复删除已不存在的 Point 也视为成功。
+
+### 总体约定
+
 - PostgreSQL 是事实来源；Qdrant 只是可从 PostgreSQL 重建的检索索引。
 - Embedding 只保存到 Qdrant，不使用 `pgvector`。
-- Qdrant 使用单个 `rag_chunks` Collection，查询通过 `document_id` 和 `active = true` 过滤。
-- 当前不建立 `knowledge_bases`、`document_versions`；需要组织多个文档时再增加 `collections`。
+- RabbitMQ 是任务传输和暂存层，不是业务事实数据库。
+- 当前不建立 `knowledge_bases`、`document_versions`、`index_jobs`；需要组织多个文档时再增加 `collections`。

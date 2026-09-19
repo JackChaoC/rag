@@ -1,16 +1,42 @@
 [project]
 name = "rag"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local asynchronous RAG indexing and retrieval service"
 readme = "README.md"
 authors = [
     { name = "Chiu Chan", email = "chenhongchao@hk01.com" }
 ]
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "aio-pika>=9.5.7",
+    "fastapi>=0.119.0",
+    "httpx>=0.28.1",
+    "markitdown[pdf]>=0.1.4",
+    "mcp>=1.18.0",
+    "pydantic-settings>=2.11.0",
+    "python-multipart>=0.0.20",
+    "psycopg[binary,pool]>=3.2.10",
+    "qdrant-client>=1.15.1,<1.17",
+    "uvicorn>=0.37.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "reportlab>=4.4.4",
+]
 
 [project.scripts]
-rag = "rag:main"
+rag = "rag.main:main"
+rag-worker = "rag.worker:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: requires local PostgreSQL, RabbitMQ, Qdrant and Ollama",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
