@@ -4,8 +4,9 @@ from io import BytesIO
 from uuid import uuid4
 
 import pytest
-from psycopg.errors import ForeignKeyViolation, UniqueViolation
 from reportlab.pdfgen import canvas
+from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 
 from rag.config import Settings
 from rag.container import Container
@@ -13,6 +14,7 @@ from rag.indexing import IndexingWorker
 from rag.infrastructure.database.client import Database
 from rag.infrastructure.database.entities.chunk import Chunk
 from rag.infrastructure.database.entities.document import Document, DocumentStatus, SourceType
+from rag.infrastructure.database.models import ChunkRecord, DocumentRecord
 from rag.infrastructure.database.repositories.chunk_repository import ChunkRepository
 from rag.infrastructure.database.repositories.document_repository import DocumentRepository
 
@@ -42,8 +44,8 @@ async def test_database_constraints_and_active_hydration() -> None:
     require_services()
     database = Database(Settings().database_url)
     await database.connect()
-    pool = database.require_pool()
-    documents = DocumentRepository(pool)
+    sessions = database.require_session_factory()
+    documents = DocumentRepository(sessions)
     document_id, chunk_id = uuid4(), uuid4()
     document = Document(
         document_id, f"constraint-{document_id}.md", SourceType.MARKDOWN,
@@ -52,27 +54,24 @@ async def test_database_constraints_and_active_hydration() -> None:
     chunk = Chunk(chunk_id, document_id, 1, 0, "# Constraint")
     try:
         await documents.create_with_chunks(document, [chunk])
-        async with pool.connection() as connection:
-            with pytest.raises(ForeignKeyViolation):
-                async with connection.transaction():
-                    await connection.execute('DELETE FROM "documents" WHERE id=%s', (document_id,))
-            with pytest.raises(UniqueViolation):
-                async with connection.transaction():
-                    await connection.execute(
-                        '''INSERT INTO "chunks"
-                           (id, document_id, version, chunk_index, content, metadata, active)
-                           VALUES (%s,%s,1,0,'duplicate','{}',FALSE)''',
-                        (uuid4(), document_id),
-                    )
+        with pytest.raises(IntegrityError):
+            async with sessions.begin() as session:
+                await session.execute(delete(DocumentRecord).where(DocumentRecord.id == document_id))
+        with pytest.raises(IntegrityError):
+            async with sessions.begin() as session:
+                session.add(ChunkRecord(
+                    id=uuid4(), document_id=document_id, version=1, chunk_index=0,
+                    content="duplicate", metadata_json={}, active=False,
+                ))
 
-        chunks = ChunkRepository(pool)
+        chunks = ChunkRepository(sessions)
         assert await chunks.hydrate([chunk_id]) == {}
         await documents.activate_version(document_id, 1)
         assert chunk_id in await chunks.hydrate([chunk_id])
     finally:
-        async with pool.connection() as connection, connection.transaction():
-            await connection.execute('DELETE FROM "chunks" WHERE document_id=%s', (document_id,))
-            await connection.execute('DELETE FROM "documents" WHERE id=%s', (document_id,))
+        async with sessions.begin() as session:
+            await session.execute(delete(ChunkRecord).where(ChunkRecord.document_id == document_id))
+            await session.execute(delete(DocumentRecord).where(DocumentRecord.id == document_id))
         await database.close()
 
 
@@ -139,8 +138,8 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
         assert deleted == []
     finally:
         if document_id is not None:
-            pool = container.database.require_pool()
-            async with pool.connection() as connection, connection.transaction():
-                await connection.execute('DELETE FROM "chunks" WHERE document_id=%s', (document_id,))
-                await connection.execute('DELETE FROM "documents" WHERE id=%s', (document_id,))
+            sessions = container.database.require_session_factory()
+            async with sessions.begin() as session:
+                await session.execute(delete(ChunkRecord).where(ChunkRecord.document_id == document_id))
+                await session.execute(delete(DocumentRecord).where(DocumentRecord.id == document_id))
         await container.close()

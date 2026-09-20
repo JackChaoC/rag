@@ -1,125 +1,178 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from uuid import UUID
 
-from psycopg_pool import AsyncConnectionPool
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from rag.infrastructure.database.entities.chunk import Chunk
-from rag.infrastructure.database.entities.document import Document, DocumentStatus, SourceType
+from rag.infrastructure.database.entities.document import Document, DocumentStatus
+from rag.infrastructure.database.models import ChunkRecord, DocumentRecord
 
 
 class DocumentRepository:
-    def __init__(self, pool: AsyncConnectionPool) -> None:
-        self._pool = pool
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
 
     async def get(self, document_id: UUID) -> Document | None:
-        async with self._pool.connection() as connection:
-            cursor = await connection.execute('SELECT * FROM "documents" WHERE id = %s', (document_id,))
-            row = await cursor.fetchone()
-        return _document(row) if row else None
+        async with self._sessions() as session:
+            record = await session.get(DocumentRecord, document_id)
+        return _document(record) if record else None
 
     async def get_by_source_uri(self, source_uri: str) -> Document | None:
-        async with self._pool.connection() as connection:
-            cursor = await connection.execute('SELECT * FROM "documents" WHERE source_uri = %s', (source_uri,))
-            row = await cursor.fetchone()
-        return _document(row) if row else None
+        async with self._sessions() as session:
+            record = await session.scalar(
+                select(DocumentRecord).where(DocumentRecord.source_uri == source_uri)
+            )
+        return _document(record) if record else None
 
     async def list(self) -> list[Document]:
-        async with self._pool.connection() as connection:
-            rows = await (await connection.execute('SELECT * FROM "documents" ORDER BY created_at, id')).fetchall()
-        return [_document(row) for row in rows]
+        async with self._sessions() as session:
+            records = await session.scalars(
+                select(DocumentRecord).order_by(DocumentRecord.created_at, DocumentRecord.id)
+            )
+            return [_document(record) for record in records]
 
     async def create_with_chunks(self, document: Document, chunks: Sequence[Chunk]) -> None:
-        async with self._pool.connection() as connection, connection.transaction():
-            await connection.execute(
-                '''INSERT INTO "documents"
-                   (id, source_uri, title, source_type, content, content_hash, current_version, status, last_error, metadata)
-                   VALUES (%s,%s,%s,%s::"SourceType",%s,%s,%s,%s::"DocumentStatus",%s,%s::jsonb)''',
-                (document.id, document.source_uri, document.title, document.source_type.value,
-                document.content, document.content_hash, document.current_version,
-                document.status.value, document.last_error, json.dumps(document.metadata)),
-            )
-            await _insert_chunks(connection, chunks)
+        _require_chunks(chunks)
+        async with self._sessions.begin() as session:
+            session.add(_document_record(document))
+            await session.flush()
+            session.add_all(_chunk_record(chunk) for chunk in chunks)
 
     async def add_version(self, document: Document, chunks: Sequence[Chunk]) -> None:
-        async with self._pool.connection() as connection, connection.transaction():
-            result = await connection.execute(
-                '''UPDATE "documents" SET content=%s, content_hash=%s, current_version=%s,
-                   status='pending', last_error=NULL, updated_at=CURRENT_TIMESTAMP
-                   WHERE id=%s AND status NOT IN ('deleting','deleted')''',
-                (document.content, document.content_hash, document.current_version, document.id),
+        _require_chunks(chunks)
+        async with self._sessions.begin() as session:
+            result = await session.execute(
+                update(DocumentRecord)
+                .where(
+                    DocumentRecord.id == document.id,
+                    DocumentRecord.status.not_in(
+                        [DocumentStatus.DELETING, DocumentStatus.DELETED]
+                    ),
+                )
+                .values(
+                    content=document.content,
+                    content_hash=document.content_hash,
+                    current_version=document.current_version,
+                    status=DocumentStatus.PENDING,
+                    last_error=None,
+                    updated_at=func.current_timestamp(),
+                )
             )
             if result.rowcount != 1:
                 raise RuntimeError("document cannot be reindexed in its current state")
-            await _insert_chunks(connection, chunks)
+            session.add_all(_chunk_record(chunk) for chunk in chunks)
 
     async def set_status(
         self, document_id: UUID, status: DocumentStatus, *, error: str | None = None,
         expected: set[DocumentStatus] | None = None,
     ) -> bool:
-        args: list[object] = [status.value, error, document_id]
-        where = "id=%s"
+        conditions = [DocumentRecord.id == document_id]
         if expected:
-            values = tuple(item.value for item in expected)
-            where += " AND status::text = ANY(%s)"
-            args.append(list(values))
-        async with self._pool.connection() as connection:
-            result = await connection.execute(
-                f'''UPDATE "documents" SET status=%s::"DocumentStatus", last_error=%s,
-                    updated_at=CURRENT_TIMESTAMP WHERE {where}''', args,
+            conditions.append(DocumentRecord.status.in_(expected))
+        async with self._sessions.begin() as session:
+            result = await session.execute(
+                update(DocumentRecord)
+                .where(*conditions)
+                .values(
+                    status=status,
+                    last_error=error,
+                    updated_at=func.current_timestamp(),
+                )
             )
             return result.rowcount == 1
 
     async def activate_version(self, document_id: UUID, version: int) -> None:
-        async with self._pool.connection() as connection, connection.transaction():
-            row = await (await connection.execute(
-                'SELECT current_version FROM "documents" WHERE id=%s FOR UPDATE', (document_id,),
-            )).fetchone()
-            if row is None or row["current_version"] != version:
-                raise RuntimeError("document version changed while indexing")
-            await connection.execute(
-                'UPDATE "chunks" SET active = (version=%s) WHERE document_id=%s', (version, document_id),
+        async with self._sessions.begin() as session:
+            current_version = await session.scalar(
+                select(DocumentRecord.current_version)
+                .where(DocumentRecord.id == document_id)
+                .with_for_update()
             )
-            await connection.execute(
-                '''UPDATE "documents" SET status='ready', last_error=NULL, updated_at=CURRENT_TIMESTAMP
-                   WHERE id=%s''', (document_id,),
+            if current_version != version:
+                raise RuntimeError("document version changed while indexing")
+            await session.execute(
+                update(ChunkRecord)
+                .where(ChunkRecord.document_id == document_id)
+                .values(active=ChunkRecord.version == version)
+            )
+            await session.execute(
+                update(DocumentRecord)
+                .where(DocumentRecord.id == document_id)
+                .values(
+                    status=DocumentStatus.READY,
+                    last_error=None,
+                    updated_at=func.current_timestamp(),
+                )
             )
 
     async def mark_deleted(self, document_id: UUID) -> None:
-        async with self._pool.connection() as connection, connection.transaction():
-            await connection.execute('UPDATE "chunks" SET active=FALSE WHERE document_id=%s', (document_id,))
-            await connection.execute(
-                '''UPDATE "documents" SET status='deleted', last_error=NULL, updated_at=CURRENT_TIMESTAMP
-                   WHERE id=%s''', (document_id,),
+        async with self._sessions.begin() as session:
+            await session.execute(
+                update(ChunkRecord)
+                .where(ChunkRecord.document_id == document_id)
+                .values(active=False)
+            )
+            await session.execute(
+                update(DocumentRecord)
+                .where(DocumentRecord.id == document_id)
+                .values(
+                    status=DocumentStatus.DELETED,
+                    last_error=None,
+                    updated_at=func.current_timestamp(),
+                )
             )
 
 
-async def _insert_chunks(connection, chunks: Sequence[Chunk]) -> None:
+def _require_chunks(chunks: Sequence[Chunk]) -> None:
     if not chunks:
         raise ValueError("a document version must contain at least one chunk")
-    cursor = connection.cursor()
-    await cursor.executemany(
-        '''INSERT INTO "chunks"
-           (id, document_id, version, chunk_index, content, start_line, end_line, token_count, metadata, active)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)''',
-        [
-            (chunk.id, chunk.document_id, chunk.version, chunk.chunk_index, chunk.content,
-             chunk.start_line, chunk.end_line, chunk.token_count, json.dumps(chunk.metadata), chunk.active)
-            for chunk in chunks
-        ],
+
+
+def _document_record(document: Document) -> DocumentRecord:
+    return DocumentRecord(
+        id=document.id,
+        source_uri=document.source_uri,
+        title=document.title,
+        source_type=document.source_type,
+        content=document.content,
+        content_hash=document.content_hash,
+        current_version=document.current_version,
+        status=document.status,
+        last_error=document.last_error,
+        metadata_json=document.metadata,
     )
 
 
-def _document(row: dict) -> Document:
-    metadata = row["metadata"]
-    if isinstance(metadata, str):
-        metadata = json.loads(metadata)
+def _chunk_record(chunk: Chunk) -> ChunkRecord:
+    return ChunkRecord(
+        id=chunk.id,
+        document_id=chunk.document_id,
+        version=chunk.version,
+        chunk_index=chunk.chunk_index,
+        content=chunk.content,
+        start_line=chunk.start_line,
+        end_line=chunk.end_line,
+        token_count=chunk.token_count,
+        metadata_json=chunk.metadata,
+        active=chunk.active,
+    )
+
+
+def _document(record: DocumentRecord) -> Document:
     return Document(
-        id=row["id"], source_uri=row["source_uri"], title=row["title"],
-        source_type=SourceType(row["source_type"]), content=row["content"],
-        content_hash=row["content_hash"], current_version=row["current_version"],
-        status=DocumentStatus(row["status"]), last_error=row["last_error"], metadata=metadata,
-        created_at=row["created_at"], updated_at=row["updated_at"],
+        id=record.id,
+        source_uri=record.source_uri,
+        title=record.title,
+        source_type=record.source_type,
+        content=record.content,
+        content_hash=record.content_hash,
+        current_version=record.current_version,
+        status=record.status,
+        last_error=record.last_error,
+        metadata=dict(record.metadata_json),
+        created_at=record.created_at,
+        updated_at=record.updated_at,
     )

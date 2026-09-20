@@ -32,9 +32,9 @@ class Container:
     async def start(self) -> None:
         await self.database.connect()
         await self.broker.connect()
-        pool = self.database.require_pool()
-        self.documents = DocumentRepository(pool)
-        self.chunks = ChunkRepository(pool)
+        sessions = self.database.require_session_factory()
+        self.documents = DocumentRepository(sessions)
+        self.chunks = ChunkRepository(sessions)
         self.vectors = VectorRepository(self.qdrant, self.settings.qdrant_collection)
         parser = DocumentParser()
         self.ingest = IngestDocument(parser, self.documents, self.broker.publish)

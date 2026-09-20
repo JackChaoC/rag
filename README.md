@@ -6,11 +6,10 @@ Qdrant. The service exposes the same read operations through FastAPI and MCP.
 
 ## Local setup
 
-```powershell
+```bash
 uv sync
 docker compose up -d
-$env:DATABASE_URL='postgresql://rag:rag@127.0.0.1:5432/rag'
-npx prisma migrate deploy
+uv run alembic upgrade head
 ```
 
 The default embedding model is `qwen3-embedding:8b`. Install it in Ollama and
@@ -18,7 +17,7 @@ keep Ollama available at `http://127.0.0.1:11434`.
 
 Start the HTTP/MCP process and the indexing worker in separate terminals:
 
-```powershell
+```bash
 uv run rag
 uv run rag-worker
 ```
@@ -31,14 +30,13 @@ The browser console is available at `http://127.0.0.1:8000/ui/`, Swagger at
 
 Fast tests use controlled substitutes and do not require local services:
 
-```powershell
+```bash
 uv run pytest -q
 ```
 
 The integration suite requires PostgreSQL, RabbitMQ, Qdrant, and Ollama. It
 includes a real PDF-to-vector flow and records the detected embedding dimension:
 
-```powershell
-$env:RUN_RAG_INTEGRATION='1'
-uv run pytest -q -s
+```bash
+RUN_RAG_INTEGRATION=1 uv run pytest -q -s
 ```

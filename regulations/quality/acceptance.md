@@ -2,7 +2,7 @@
 
 ## 自动化验证范围
 
-> 变更批次：`26-09-19_1`
+> 变更批次：`26-09-20_0`
 > 变更来源：`improve-regulations`
 > 落地状态：`已实现`
 > 实现优先级：`P0`
@@ -20,4 +20,4 @@
 
 测试必须使用可控替身覆盖外部失败，并提供 Docker Compose 启动真实 PostgreSQL、RabbitMQ 和 Qdrant 的本地集成验证路径。真实 Ollama 可以在日常测试中使用替身，但 PDF 端到端验收必须使用本地 `qwen3-embedding:8b`，并记录实际模型、向量维度和距离度量。
 
-本批次只有在相关产品代码、Prisma Schema、migration 和测试全部实现，且上述验证通过后，才能由 `implement-regulations` 将状态改为“已实现”。仅创建目录、接口或空测试不满足验收条件，也不得更新 `target.md` 的学习进度。
+本批次只有在相关产品代码、SQLAlchemy Model、Alembic migration 和测试全部实现，且上述验证通过后，才能由 `implement-regulations` 将状态改为“已实现”。仅创建目录、接口或空测试不满足验收条件，也不得更新 `target.md` 的学习进度。

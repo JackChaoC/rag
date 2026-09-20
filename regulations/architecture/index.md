@@ -5,7 +5,7 @@
 - RAG 服务、Worker、PostgreSQL、RabbitMQ、Ollama Embedding 和 Qdrant 的职责边界。
 - 同步请求与异步索引之间的总体数据流。
 - 数据事实来源和可重建数据的归属。
-- Python 运行时基础设施选型和 Prisma migration 策略。
+- Python 运行时基础设施选型和 Alembic migration 策略。
 - HTTP 端点与 MCP Tool 的公开输入输出契约。
 
 ## 明确不包含

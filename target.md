@@ -201,9 +201,10 @@ rag/
 ├── pyproject.toml
 ├── README.md
 ├── .env.example
-├── prisma/
-│   ├── schema.prisma
-│   └── migrations/
+├── alembic.ini
+├── alembic/
+│   ├── env.py
+│   └── versions/
 ├── src/rag/
 │   ├── __init__.py
 │   ├── main.py
@@ -224,6 +225,7 @@ rag/
 │   ├── infrastructure/
 │   │   ├── database/
 │   │   │   ├── client.py
+│   │   │   ├── models.py
 │   │   │   ├── entities/
 │   │   │   │   ├── document.py
 │   │   │   │   └── chunk.py
@@ -274,7 +276,7 @@ rag/
 - `infrastructure`：PostgreSQL、Qdrant 和 Ollama Embedding 等外部服务实现。
 - `entities`：跟随拥有这些数据的基础设施模块；没有独立数据结构的模块不建立 `entities`。
 - `repositories`：负责对应实体的存取。
-- `prisma/schema.prisma`：PostgreSQL 表结构的唯一来源；迁移文件存放于 `prisma/migrations`。
+- `infrastructure/database/models.py`：SQLAlchemy 2.0 运行时映射与 Alembic Metadata 来源；迁移文件存放于 `alembic/versions`。
 
 依赖方向：
 

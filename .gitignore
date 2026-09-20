@@ -12,4 +12,3 @@ wheels/
 .pytest_cache/
 .ruff_cache/
 *.log
-node_modules/
