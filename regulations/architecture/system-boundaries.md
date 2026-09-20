@@ -23,3 +23,24 @@
 验收条件：通过依赖检查或测试证明 Core 可脱离外部框架运行；HTTP/MCP 调用同一组 Use Case；FastAPI 进程没有 Embedding 或 Qdrant 写入路径；删除 Qdrant Collection 后能以 PostgreSQL 数据重新建立索引。
 
 权威依据：[`target.md`](../../target.md) 的“当前项目架构”“分层职责”和“总体约定”。
+
+## 运行进程与公开入口
+
+`uv run rag` 启动单个 Uvicorn/FastAPI 进程，同时提供 HTTP API、健康检查、Swagger、MCP 和静态前端；前端不使用独立开发服务器。
+
+```text
+uv run rag
+  │
+  ├── Uvicorn：127.0.0.1:8000
+  │
+  └── FastAPI
+      ├── /v1/*    HTTP API
+      ├── /health  健康检查
+      ├── /docs    Swagger
+      ├── /mcp     MCP
+      └── /ui/*    前端静态文件
+```
+
+`frontend/` 必须挂载到 `/ui`，使浏览器页面与 API 保持同源。异步索引消费者不属于该 Web 进程，由 `uv run rag-worker` 单独启动。
+
+权威入口：[`pyproject.toml`](../../pyproject.toml)、[`src/rag/main.py`](../../src/rag/main.py)、[`src/rag/interfaces/http/app.py`](../../src/rag/interfaces/http/app.py) 和 [`src/rag/worker.py`](../../src/rag/worker.py)。
