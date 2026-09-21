@@ -51,7 +51,11 @@ class Chunks:
 
 
 class Embedder:
+    def __init__(self):
+        self.texts = []
+
     async def embed(self, texts):
+        self.texts.extend(texts)
         return [[1.0, 0.0] for _ in texts]
 
 
@@ -88,6 +92,26 @@ def setup(status=DocumentStatus.PENDING):
     chunk = Chunk(uuid4(), doc.id, 1, 0, "text")
     documents, chunks, vectors = Documents(doc), Chunks([chunk]), Vectors()
     return doc, chunk, IndexingWorker(documents, chunks, Embedder(), vectors), vectors
+
+
+@pytest.mark.asyncio
+async def test_worker_embeds_document_title_heading_and_body() -> None:
+    doc = Document(
+        uuid4(), "doc.md", SourceType.MARKDOWN, "text", "hash",
+        title="Database Guide",
+    )
+    chunk = Chunk(
+        uuid4(), doc.id, 1, 0, "## Migration\nAlembic manages revisions.",
+        metadata={"heading": "Migration"},
+    )
+    embedder = Embedder()
+    worker = IndexingWorker(Documents(doc), Chunks([chunk]), embedder, Vectors())
+
+    await worker.handle(IndexMessage(doc.id, IndexOperation.INGEST, 1))
+
+    assert embedder.texts == [
+        "# Database Guide\n\n## Migration\n\nAlembic manages revisions."
+    ]
 
 
 @pytest.mark.asyncio

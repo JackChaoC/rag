@@ -16,6 +16,16 @@
 
 Qdrant 是派生索引。删除 Collection 或 Point 后，系统必须能仅根据 PostgreSQL 中的有效 Chunk 重新生成全部向量；不得从 Qdrant 反向恢复业务事实。
 
+## Document Embedding 输入
+
+> 变更批次：`26-09-21_0`
+> 变更来源：`implement-regulations`
+> 落地状态：`已实现`
+
+Worker 为 Chunk 生成 Document Embedding 时，按 Markdown 结构依次拼接非空的 Document `title`、Chunk `metadata.heading` 和 Chunk `content`。若正文开头已包含相同二级标题，拼接时不得重复该标题。Document title 或 Section heading 不存在时必须自然退化为剩余内容；两者都不存在时 Embedding 输入等于清理首尾空白后的 `chunk.content`。
+
+Query Embedding 只处理用户查询文本，不拼接 Document title、Section heading 或其他 Document Metadata。第一版不为 title 与 body 建立独立向量。
+
 ## 搜索与 PostgreSQL 回填
 
 > 变更批次：`26-09-19_0`

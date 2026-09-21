@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from rag.core.embedding.embedder import Embedder
+from rag.core.embedding.text import document_embedding_text
 from rag.infrastructure.database.entities.document import DocumentStatus
 from rag.infrastructure.database.repositories.chunk_repository import ChunkRepository
 from rag.infrastructure.database.repositories.document_repository import DocumentRepository
@@ -44,7 +45,9 @@ class IndexingWorker:
             target = await self._chunks.for_version(document.id, message.version)
             if not target:
                 raise RuntimeError("document version has no chunks")
-            embeddings = await self._embedder.embed([chunk.content for chunk in target])
+            embeddings = await self._embedder.embed([
+                _embedding_text(document.title, chunk.content, chunk.metadata) for chunk in target
+            ])
             dimension = len(embeddings[0])
             await self._vectors.ensure_collection(dimension)
             await self._vectors.upsert([
@@ -81,10 +84,21 @@ class IndexingWorker:
             chunks = await self._chunks.for_version(document.id, document.current_version)
             if not chunks:
                 continue
-            embeddings = await self._embedder.embed([chunk.content for chunk in chunks])
+            embeddings = await self._embedder.embed([
+                _embedding_text(document.title, chunk.content, chunk.metadata) for chunk in chunks
+            ])
             await self._vectors.ensure_collection(len(embeddings[0]))
             await self._vectors.upsert([
                 VectorRecord(chunk.id, vector) for chunk, vector in zip(chunks, embeddings, strict=True)
             ])
             count += len(chunks)
         return count
+
+
+def _embedding_text(title: str | None, content: str, metadata: dict) -> str:
+    heading = metadata.get("heading")
+    return document_embedding_text(
+        content,
+        document_title=title,
+        section_heading=heading if isinstance(heading, str) else None,
+    )

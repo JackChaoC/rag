@@ -2,17 +2,16 @@
 
 ## 自动化验证范围
 
-> 变更批次：`26-09-20_0`
-> 变更来源：`improve-regulations`
+> 变更批次：`26-09-21_0`
+> 变更来源：`implement-regulations`
 > 落地状态：`已实现`
-> 实现优先级：`P0`
 
 实现本批次时必须提供以下可重复验证，不以手工观察代替：
 
-- 单元测试：Parser 接口、Cleaner 确定性、Markdown 结构切块、Chunk 行号和 Hash 稳定性。
+- 单元测试：Parser 接口、Cleaner 确定性、仅按二级标题建立 Section、超长 Section 的 `1200` 字符硬上限、Chunk 标题 Metadata、行号和 Hash 稳定性。
 - 数据库测试：Document/Chunk 约束、级联禁止、版本顺序唯一性、有效状态查询。
 - 消息测试：Routing Key、Publisher Confirm 失败、手动 ACK、有限重试、退避和死信。
-- Worker 集成测试：Ingest、Reindex、Delete 的成功路径、重复投递、过期版本、Ollama 失败、Qdrant 部分成功和 PostgreSQL 状态切换失败。
+- Worker 集成测试：Ingest、Reindex、Delete 的成功路径、Document title + Section heading + body 的 Embedding 输入、重复投递、过期版本、Ollama 失败、Qdrant 部分成功和 PostgreSQL 状态切换失败。
 - 检索集成测试：Query Embedding、Qdrant 搜索、PostgreSQL 批量回填、排名恢复、无效 Point 过滤和有界 over-fetch。
 - 端到端测试：至少一种非 Markdown 文件完成解析、持久化、异步 Embedding、向量写入和带来源检索；解析失败不发布消息、不产生残留向量。
 - 可重建性测试：清空 `rag_chunks` 后，从 PostgreSQL 有效 Chunk 重建，Point ID 集合与预期一致。

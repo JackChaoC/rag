@@ -306,6 +306,8 @@ Worker     -> RabbitMQ -> PostgreSQL / Ollama Embedding / Qdrant
 - MarkItDown 只负责格式转换和尽量保留标题、列表、表格、链接等文档结构，不负责清洗、切块、Embedding 或检索。
 - 原生 Markdown 和普通文本也通过同一解析接口进入后续流程，避免 use case 感知具体文件格式。
 - MarkItDown 的输出先经过 `cleaner` 和 `chunker`，不能直接生成 Embedding。
+- `chunker` 只以二级标题作为 Section 边界；一级标题和三级及更深标题保留在 Section 内。Section 超过 `1200` 字符时依次按语义块、行、句子和字符兜底拆分，第一版不使用 overlap。
+- Worker 的 Document Embedding 输入由非空的 Document title、二级标题和 Chunk body 组成；Query Embedding 仍只使用查询文本。
 - 解析失败时终止本次索引，不向 RabbitMQ 发布任务，也不向 Qdrant 写入不完整数据，并通过 Document 状态和错误字段保留可诊断信息。
 - 第一版只启用项目明确支持且有测试覆盖的格式；新增格式时需要补充解析和端到端索引测试。
 
@@ -366,9 +368,32 @@ chunks
 - `id` 同时作为 Qdrant Point ID。
 - 同一文档版本中 `chunk_index` 从 `0` 开始，并使用 `UNIQUE(document_id, version, chunk_index)` 保证顺序唯一。
 - `start_line` 和 `end_line` 使用从 `1` 开始且包含边界的原文行号；无法稳定定位时允许为空。
+- `metadata.heading` 保存 Chunk 所属的二级标题；同一二级标题的超长 Section 可以产生多个连续 Chunk。
 - 文档重建成功后，旧 Chunk 必须停用，其对应的 Qdrant Point 必须物理删除。
 
 ### Qdrant Point
+
+Qdrant 的通用数据结构如下：
+
+```mermaid
+flowchart TB
+    Q[Qdrant]
+    Q --> C1[Collection A]
+    Q --> C2[Collection B]
+    C1 --> P1[Point 1]
+    C1 --> P2[Point 2]
+    P1 --> ID[ID / Key]
+    P1 --> V[Vector]
+    P1 --> PAY[Payload]
+```
+
+- `Collection`：一组 Point 的集合，类似关系数据库中的表；同一 Collection 通常使用统一的向量维度和距离度量。
+- `Point`：Qdrant 的基本数据单位，通常对应一个可检索对象，例如一个 Chunk。
+- `ID`：Point 的唯一标识，可以使用整数或 UUID。
+- `Vector`：Embedding 模型生成的浮点数数组，用于计算相似度。
+- `Payload`：与 Point 一起保存的可选 JSON 数据，可用于返回业务信息或执行过滤。
+
+本项目采用精简结构：
 
 Qdrant 使用单个 `rag_chunks` Collection，只保存 Chunk ID 和 Dense Vector，不保存 Payload。
 

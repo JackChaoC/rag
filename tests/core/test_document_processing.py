@@ -16,11 +16,32 @@ def test_cleaner_is_deterministic() -> None:
     assert clean_markdown(once) == once
 
 
-def test_chunker_preserves_heading_and_one_based_lines() -> None:
-    drafts = chunk_markdown("# First\nline\n\n## Second\nmore\n")
-    assert [draft.chunk_index for draft in drafts] == [0, 1]
-    assert (drafts[0].start_line, drafts[0].end_line) == (1, 3)
-    assert drafts[1].metadata == {"heading": "Second"}
+def test_chunker_splits_only_on_h2_and_preserves_one_based_lines() -> None:
+    drafts = chunk_markdown("# Document\nintro\n\n## First\nline\n### Detail\nmore\n\n## Second\nlast\n")
+
+    assert [draft.chunk_index for draft in drafts] == [0, 1, 2]
+    assert drafts[0].metadata == {}
+    assert drafts[1].metadata == {"heading": "First"}
+    assert drafts[1].content == "## First\nline\n### Detail\nmore"
+    assert (drafts[1].start_line, drafts[1].end_line) == (4, 7)
+    assert drafts[2].metadata == {"heading": "Second"}
+
+
+def test_chunker_structurally_splits_oversized_h2_section() -> None:
+    paragraph = "Sentence with useful context. " * 80
+    drafts = chunk_markdown(f"## Large\n\n{paragraph}\n\n- final item\n", max_chars=1200)
+
+    assert len(drafts) >= 2
+    assert all(len(draft.content) <= 1200 for draft in drafts)
+    assert all(draft.metadata == {"heading": "Large"} for draft in drafts)
+    assert [draft.chunk_index for draft in drafts] == list(range(len(drafts)))
+
+
+def test_h1_and_h3_do_not_create_section_boundaries() -> None:
+    drafts = chunk_markdown("# Document\nintro\n### Detail\nbody\n")
+
+    assert len(drafts) == 1
+    assert drafts[0].content == "# Document\nintro\n### Detail\nbody"
 
 
 @pytest.mark.asyncio
