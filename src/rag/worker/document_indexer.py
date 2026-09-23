@@ -48,39 +48,30 @@ class DocumentIndexer:
         if not claimed:
             raise RuntimeError("document is already being indexed")
 
-        try:
-            target = await self._chunks.for_version(document.id, message.version)
-            if not target:
-                raise RuntimeError("document version has no chunks")
+        target = await self._chunks.for_version(document.id, message.version)
+        if not target:
+            raise RuntimeError("document version has no chunks")
 
-            embeddings = await self._embedder.embed([
-                document_embedding_text(
-                    chunk.content,
-                    document_title=document.title,
-                    section_heading=(
-                        chunk.metadata.get("heading")
-                        if isinstance(chunk.metadata.get("heading"), str)
-                        else None
-                    ),
-                )
-                for chunk in target
-            ])
-            await self._vectors.ensure_collection(len(embeddings[0]))
-            await self._vectors.upsert([
-                VectorRecord(chunk.id, vector)
-                for chunk, vector in zip(target, embeddings, strict=True)
-            ])
-            await self._documents.activate_version(document.id, message.version)
-            old_ids = await self._chunks.all_ids(
-                document.id,
-                exclude_version=message.version,
+        embeddings = await self._embedder.embed([
+            document_embedding_text(
+                chunk.content,
+                document_title=document.title,
+                section_heading=(
+                    chunk.metadata.get("heading")
+                    if isinstance(chunk.metadata.get("heading"), str)
+                    else None
+                ),
             )
-            await self._vectors.delete(old_ids)
-        except Exception as exc:
-            await self._documents.set_status(
-                document.id,
-                DocumentStatus.FAILED,
-                error=str(exc)[:4000],
-                expected={DocumentStatus.INDEXING},
-            )
-            raise
+            for chunk in target
+        ])
+        await self._vectors.ensure_collection(len(embeddings[0]))
+        await self._vectors.upsert([
+            VectorRecord(chunk.id, vector)
+            for chunk, vector in zip(target, embeddings, strict=True)
+        ])
+        await self._documents.activate_version(document.id, message.version)
+        old_ids = await self._chunks.all_ids(
+            document.id,
+            exclude_version=message.version,
+        )
+        await self._vectors.delete(old_ids)

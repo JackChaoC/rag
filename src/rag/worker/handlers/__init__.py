@@ -3,6 +3,7 @@ from rag.worker.handlers.document_ingest_handler import DocumentIngestHandler
 from rag.worker.handlers.document_reindex_handler import DocumentReindexHandler
 from rag.worker.handlers.failure_handler import FailureHandler
 from rag.worker.handlers.rebuild_handler import RebuildHandler
+from rag.worker.handlers.retry_handler import RetryHandler
 
 __all__ = [
     "DocumentDeleteHandler",
@@ -10,4 +11,5 @@ __all__ = [
     "DocumentReindexHandler",
     "FailureHandler",
     "RebuildHandler",
+    "RetryHandler",
 ]

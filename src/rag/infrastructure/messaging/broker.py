@@ -68,6 +68,7 @@ class RabbitBroker:
     async def consume(
         self, handler: Callable[[str, IndexMessage], Awaitable[None]],
         on_dead: Callable[[IndexMessage, Exception], Awaitable[None]] | None = None,
+        on_retry: Callable[[IndexMessage, Exception], Awaitable[None]] | None = None,
     ) -> None:
         if self.main_queue is None:
             raise RuntimeError("RabbitMQ is not connected")
@@ -80,6 +81,8 @@ class RabbitBroker:
                 await handler(routing_key, message)
             except Exception as exc:
                 if retry_count < 3:
+                    if on_retry is not None:
+                        await on_retry(message, exc)
                     assert self.retry_exchange is not None
                     await self.retry_exchange.publish(
                         Message(

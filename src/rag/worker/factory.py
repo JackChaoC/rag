@@ -12,6 +12,7 @@ from rag.worker.handlers import (
     DocumentReindexHandler,
     FailureHandler,
     RebuildHandler,
+    RetryHandler,
 )
 
 
@@ -19,6 +20,7 @@ from rag.worker.handlers import (
 class WorkerServices:
     dispatcher: IndexingDispatcher
     failure_handler: FailureHandler
+    retry_handler: RetryHandler
     rebuild_handler: RebuildHandler
 
 
@@ -36,5 +38,6 @@ def create_worker_services(
             DocumentDeleteHandler(documents, chunks, vectors),
         ),
         failure_handler=FailureHandler(documents, chunks, vectors),
+        retry_handler=RetryHandler(documents),
         rebuild_handler=RebuildHandler(documents, chunks, embedder, vectors),
     )

@@ -6,9 +6,8 @@ import httpx
 
 
 class OllamaEmbedder:
-    def __init__(self, base_url: str, model: str, timeout: float = 120.0, num_gpu: int = 0) -> None:
+    def __init__(self, base_url: str, model: str, timeout: float = 120.0) -> None:
         self._model = model
-        self._num_gpu = num_gpu
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout)
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -19,8 +18,7 @@ class OllamaEmbedder:
             json={
                 "model": self._model,
                 "input": list(texts),
-                "keep_alive": 0,
-                "options": {"num_gpu": self._num_gpu},
+                "keep_alive": "5m",
             },
         )
         response.raise_for_status()

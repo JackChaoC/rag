@@ -19,7 +19,8 @@ async def run() -> None:
     )
     await container.broker.consume(
         services.dispatcher.dispatch,
-        services.failure_handler.handle,
+        on_dead=services.failure_handler.handle,
+        on_retry=services.retry_handler.handle,
     )
     try:
         await asyncio.Future()

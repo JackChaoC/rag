@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://127.0.0.1:6333"
     ollama_url: str = "http://127.0.0.1:11434"
     embedding_model: str = "qwen3-embedding:8b"
-    ollama_num_gpu: int = Field(default=0, ge=0)
     qdrant_collection: str = "rag_chunks"
     search_max_candidates: int = Field(default=100, ge=1)
     rabbitmq_prefetch: int = Field(default=4, ge=1)

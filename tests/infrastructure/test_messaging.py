@@ -40,11 +40,15 @@ async def test_recoverable_failure_is_confirmed_to_retry_before_ack() -> None:
     broker.retry_exchange = Exchange()
     broker.dead_exchange = Exchange()
     message = IndexMessage(uuid4(), IndexOperation.INGEST, 1)
+    retries = []
 
     async def fail(_routing_key, _message):
         raise RuntimeError("temporary")
 
-    await broker.consume(fail)
+    async def on_retry(retried_message, error):
+        retries.append((retried_message, str(error)))
+
+    await broker.consume(fail, on_retry=on_retry)
     incoming = Incoming(message)
     await broker.main_queue.callback(incoming)
 
@@ -53,6 +57,7 @@ async def test_recoverable_failure_is_confirmed_to_retry_before_ack() -> None:
     assert retried.headers["x-retry-count"] == 1
     assert retried.headers["x-original-routing-key"] == "document.ingest"
     assert mandatory is True
+    assert retries == [(message, "temporary")]
     assert incoming.acked is True
 
 
@@ -64,6 +69,7 @@ async def test_fourth_failure_is_dead_lettered_and_marked_failed() -> None:
     broker.dead_exchange = Exchange()
     message = IndexMessage(uuid4(), IndexOperation.REINDEX, 2)
     dead = []
+    retries = []
 
     async def fail(_routing_key, _message):
         raise RuntimeError("terminal")
@@ -71,11 +77,15 @@ async def test_fourth_failure_is_dead_lettered_and_marked_failed() -> None:
     async def on_dead(failed_message, error):
         dead.append((failed_message, str(error)))
 
-    await broker.consume(fail, on_dead)
+    async def on_retry(retried_message, error):
+        retries.append((retried_message, str(error)))
+
+    await broker.consume(fail, on_dead, on_retry)
     incoming = Incoming(message, retry_count=3)
     await broker.main_queue.callback(incoming)
 
     assert dead == [(message, "terminal")]
+    assert retries == []
     assert broker.dead_exchange.published[0][1] == "document.failed"
     assert incoming.acked is True
 

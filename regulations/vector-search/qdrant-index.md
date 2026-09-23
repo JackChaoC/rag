@@ -2,16 +2,16 @@
 
 ## Collection 与 Point 契约
 
-> 变更批次：`26-09-19_1`
-> 变更来源：`improve-regulations`
+> 变更批次：`26-09-24_0`
+> 变更来源：`implement-regulations`
 > 落地状态：`已实现`
-> 实现优先级：`P0`
 
 - 使用单个 Collection `rag_chunks`。
 - Point 只包含 `id` 与一个 Dense Vector；`id` 必须等于 PostgreSQL `chunks.id`，Vector 类型为 `FLOAT32[embedding_dimension]`。
 - Point 不保存 Payload，不复制正文、`document_id`、版本、`active` 或 Metadata。
 - `embedding_dimension` 由配置的 Embedding 模型决定；模型没有特殊要求时距离度量使用 `Cosine`。
 - 默认模型为本地 Ollama `qwen3-embedding:8b`；Collection 创建时以一次真实 Embed 响应的长度确定 `embedding_dimension`。
+- Ollama Embed 请求不得固定 `num_gpu` 或其他设备选择参数，由 Ollama 自动调度运行设备；`keep_alive` 固定为 `5m`。当前不人为拆分 Chunk Embedding 批次，出现实际资源或超时问题后再单独定义批处理策略。
 - 服务启动和 Worker 写入前必须校验现有 Collection 的向量维度和距离度量。配置不兼容时必须快速失败并要求显式重建，不得向不兼容 Collection 写入。
 
 Qdrant 是派生索引。删除 Collection 或 Point 后，系统必须能仅根据 PostgreSQL 中的有效 Chunk 重新生成全部向量；不得从 Qdrant 反向恢复业务事实。

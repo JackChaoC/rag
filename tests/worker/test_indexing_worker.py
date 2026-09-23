@@ -162,7 +162,7 @@ async def test_terminal_failure_cleans_target_points_and_records_error() -> None
 
     assert vectors.points == {}
     assert doc.status is DocumentStatus.FAILED
-    assert doc.last_error == "ollama down"
+    assert doc.last_error == "RuntimeError: ollama down"
 
 
 @pytest.mark.asyncio
@@ -174,16 +174,46 @@ async def test_qdrant_success_then_postgres_failure_converges_on_retry() -> None
     services = create_worker_services(documents, Chunks([chunk]), Embedder(), vectors)
     message = IndexMessage(doc.id, IndexOperation.INGEST, 1)
 
-    with pytest.raises(RuntimeError, match="postgres switch failed"):
+    with pytest.raises(RuntimeError, match="postgres switch failed") as failure:
         await services.dispatcher.dispatch(message.operation.routing_key, message)
-    assert doc.status is DocumentStatus.FAILED
+    assert doc.status is DocumentStatus.INDEXING
     assert vectors.points == {chunk.id: [1.0, 0.0]}
+
+    await services.retry_handler.handle(message, failure.value)
+    assert doc.status is DocumentStatus.PENDING
+    assert doc.last_error == "RuntimeError: postgres switch failed"
 
     await services.dispatcher.dispatch(message.operation.routing_key, message)
 
     assert doc.status is DocumentStatus.READY
     assert doc.last_error is None
     assert vectors.points == {chunk.id: [1.0, 0.0]}
+
+
+@pytest.mark.asyncio
+async def test_terminal_failure_records_exception_type_when_message_is_empty() -> None:
+    doc, _, services, _ = setup(DocumentStatus.INDEXING)
+
+    await services.failure_handler.handle(
+        IndexMessage(doc.id, IndexOperation.INGEST, 1),
+        TimeoutError(),
+    )
+
+    assert doc.status is DocumentStatus.FAILED
+    assert doc.last_error == "TimeoutError"
+
+
+@pytest.mark.asyncio
+async def test_delete_retry_keeps_document_deleting() -> None:
+    doc, _, services, _ = setup(DocumentStatus.DELETING)
+
+    await services.retry_handler.handle(
+        IndexMessage(doc.id, IndexOperation.DELETE, 1),
+        RuntimeError("qdrant unavailable"),
+    )
+
+    assert doc.status is DocumentStatus.DELETING
+    assert doc.last_error is None
 
 
 @pytest.mark.asyncio

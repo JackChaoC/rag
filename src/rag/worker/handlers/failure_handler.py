@@ -26,5 +26,12 @@ class FailureHandler:
         await self._documents.set_status(
             message.document_id,
             DocumentStatus.FAILED,
-            error=str(error)[:4000],
+            error=_error_detail(error),
         )
+
+
+def _error_detail(error: Exception) -> str:
+    detail = str(error).strip()
+    if detail:
+        return f"{type(error).__name__}: {detail}"[:4000]
+    return type(error).__name__

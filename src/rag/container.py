@@ -26,9 +26,7 @@ class Container:
         self.database = Database(settings.database_url)
         self.broker = RabbitBroker(settings.rabbitmq_url, settings.rabbitmq_retry_delays, settings.rabbitmq_prefetch)
         self.qdrant = AsyncQdrantClient(url=settings.qdrant_url)
-        self.embedder = OllamaEmbedder(
-            settings.ollama_url, settings.embedding_model, num_gpu=settings.ollama_num_gpu,
-        )
+        self.embedder = OllamaEmbedder(settings.ollama_url, settings.embedding_model)
         self.health = CheckHealth(
             self.database, self.broker, self.qdrant, settings.ollama_url,
         )

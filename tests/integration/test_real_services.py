@@ -24,7 +24,7 @@ async def test_postgres_rabbit_qdrant_and_real_ollama() -> None:
     database = Database(settings.database_url)
     broker = RabbitBroker(settings.rabbitmq_url, settings.rabbitmq_retry_delays)
     qdrant = AsyncQdrantClient(url=settings.qdrant_url)
-    embedder = OllamaEmbedder(settings.ollama_url, settings.embedding_model, num_gpu=settings.ollama_num_gpu)
+    embedder = OllamaEmbedder(settings.ollama_url, settings.embedding_model)
     try:
         await asyncio.wait_for(database.connect(), 15)
         await asyncio.wait_for(broker.connect(), 15)
