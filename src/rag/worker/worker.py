@@ -5,14 +5,22 @@ import sys
 
 from rag.config import get_settings
 from rag.container import Container
-from rag.indexing import IndexingWorker
+from rag.worker.factory import create_worker_services
 
 
 async def run() -> None:
     container = Container(get_settings())
     await container.start()
-    worker = IndexingWorker(container.documents, container.chunks, container.embedder, container.vectors)
-    await container.broker.consume(worker.handle, worker.fail)
+    services = create_worker_services(
+        container.documents,
+        container.chunks,
+        container.embedder,
+        container.vectors,
+    )
+    await container.broker.consume(
+        services.dispatcher.dispatch,
+        services.failure_handler.handle,
+    )
     try:
         await asyncio.Future()
     finally:
@@ -28,7 +36,3 @@ def main() -> None:
             asyncio.run(run())
     except KeyboardInterrupt:
         pass
-
-
-if __name__ == "__main__":
-    main()

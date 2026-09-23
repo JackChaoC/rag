@@ -11,6 +11,7 @@ from rag.infrastructure.database.repositories.document_repository import Documen
 from rag.infrastructure.embedding.ollama_embedder import OllamaEmbedder
 from rag.infrastructure.messaging.broker import RabbitBroker
 from rag.infrastructure.vector_store.repositories.vector_repository import VectorRepository
+from rag.use_cases.check_health import CheckHealth
 from rag.use_cases.delete_document import DeleteDocument
 from rag.use_cases.get_document_chunk import GetDocumentChunk
 from rag.use_cases.ingest_document import IngestDocument
@@ -27,6 +28,9 @@ class Container:
         self.qdrant = AsyncQdrantClient(url=settings.qdrant_url)
         self.embedder = OllamaEmbedder(
             settings.ollama_url, settings.embedding_model, num_gpu=settings.ollama_num_gpu,
+        )
+        self.health = CheckHealth(
+            self.database, self.broker, self.qdrant, settings.ollama_url,
         )
 
     async def start(self) -> None:

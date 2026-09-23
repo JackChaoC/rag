@@ -26,6 +26,10 @@
 
 ## 运行进程与公开入口
 
+> 变更批次：`26-09-23_0`
+> 变更来源：`implement-regulations`
+> 落地状态：`已实现`
+
 `uv run rag` 启动单个 Uvicorn/FastAPI 进程，同时提供 HTTP API、健康检查、Swagger、MCP 和静态前端；前端不使用独立开发服务器。
 
 ```text
@@ -43,4 +47,4 @@ uv run rag
 
 `frontend/` 必须挂载到 `/ui`，使浏览器页面与 API 保持同源。异步索引消费者不属于该 Web 进程，由 `uv run rag-worker` 单独启动。
 
-权威入口：[`pyproject.toml`](../../pyproject.toml)、[`src/rag/main.py`](../../src/rag/main.py)、[`src/rag/interfaces/http/app.py`](../../src/rag/interfaces/http/app.py) 和 [`src/rag/worker.py`](../../src/rag/worker.py)。
+权威入口：[`pyproject.toml`](../../pyproject.toml)、[`src/rag/main.py`](../../src/rag/main.py)、[`src/rag/interfaces/http/app.py`](../../src/rag/interfaces/http/app.py) 和 [`src/rag/worker/worker.py`](../../src/rag/worker/worker.py)。

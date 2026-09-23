@@ -20,3 +20,15 @@
 测试必须使用可控替身覆盖外部失败，并提供 Docker Compose 启动真实 PostgreSQL、RabbitMQ 和 Qdrant 的本地集成验证路径。真实 Ollama 可以在日常测试中使用替身，但 PDF 端到端验收必须使用本地 `qwen3-embedding:8b`，并记录实际模型、向量维度和距离度量。
 
 本批次只有在相关产品代码、SQLAlchemy Model、Alembic migration 和测试全部实现，且上述验证通过后，才能由 `implement-regulations` 将状态改为“已实现”。仅创建目录、接口或空测试不满足验收条件，也不得更新 `target.md` 的学习进度。
+
+## Worker 分派结构验收
+
+> 变更批次：`26-09-23_0`
+> 变更来源：`implement-regulations`
+> 落地状态：`已实现`
+
+- Dispatcher 测试必须覆盖 Ingest、Reindex、Delete 三个处理分支、未知 Routing Key 和 Routing Key/operation 不一致。
+- Messaging 测试必须证明 Retry Queue 的 `retry.N` Routing Key 会通过 `x-original-routing-key` 恢复为原业务 Routing Key 后再交给 Dispatcher。
+- Worker 重构后必须继续通过重复 Ingest、过期 Reindex、终态失败清理、Qdrant 成功后 PostgreSQL 失败重试，以及重复 Delete 的幂等测试。
+
+验收条件：Worker 与 Messaging 单元测试全部通过，非集成测试无回归；真实外部服务集成测试仍由 `RUN_RAG_INTEGRATION=1` 显式启用。

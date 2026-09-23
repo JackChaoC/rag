@@ -8,7 +8,10 @@ from mcp import Client
 
 from rag.infrastructure.database.entities.document import DocumentStatus
 from rag.interfaces.http.app import create_app
+from rag.interfaces.http.dependencies import get_check_health, get_ingest_document
+from rag.interfaces.mcp.dependencies import McpDependencies
 from rag.interfaces.mcp.server import create_mcp_server
+from rag.use_cases.check_health import HealthStatus
 from rag.use_cases.common import DependencyError, DocumentSummary
 
 
@@ -92,8 +95,8 @@ async def test_http_rejects_top_k_above_ten() -> None:
 @pytest.mark.asyncio
 async def test_http_dependency_failure_is_503() -> None:
     container = FakeContainer()
-    container.ingest = FailingUseCase()
     app = create_app(container)
+    app.dependency_overrides[get_ingest_document] = lambda: FailingUseCase()
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test",
     ) as client:
@@ -105,6 +108,37 @@ async def test_http_dependency_failure_is_503() -> None:
     assert response.status_code == 503
     assert response.json() == {
         "code": "dependency_unavailable", "message": "broker unavailable",
+    }
+
+
+@pytest.mark.asyncio
+async def test_http_health_uses_overridable_use_case() -> None:
+    app = create_app(FakeContainer())
+    app.dependency_overrides[get_check_health] = lambda: UseCase(
+        HealthStatus(
+            ready=False,
+            dependencies={
+                "postgresql": True,
+                "rabbitmq": True,
+                "qdrant": False,
+                "ollama": True,
+            },
+        )
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test",
+    ) as client:
+        response = await client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "ready": False,
+        "dependencies": {
+            "postgresql": True,
+            "rabbitmq": True,
+            "qdrant": False,
+            "ollama": True,
+        },
     }
 
 
@@ -125,7 +159,13 @@ async def test_frontend_is_served_from_same_origin() -> None:
 @pytest.mark.asyncio
 async def test_mcp_discovers_and_calls_three_tools() -> None:
     container = FakeContainer()
-    server = create_mcp_server(container)
+    server = create_mcp_server(
+        McpDependencies(
+            provide_search_knowledge=lambda: container.search,
+            provide_get_document_chunk=lambda: container.get_chunk,
+            provide_list_documents=lambda: container.list_documents,
+        )
+    )
     async with Client(server) as client:
         tools = await client.list_tools()
         assert {tool.name for tool in tools.tools} == {

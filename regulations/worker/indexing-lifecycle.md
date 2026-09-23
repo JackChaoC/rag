@@ -25,3 +25,16 @@ Delete 必须先把 Document 置为 `deleting`；Worker 根据该 Document 的�
 同一 Document 进入 `deleting` 后不得接受新的 Ingest 或 Reindex，除非后续规范显式定义恢复流程。
 
 验收条件：对每种 operation 重复投递至少两次，数据库版本、有效 Chunk 数量和 Qdrant Point 数量不增加；乱序旧版本不会覆盖新版本；任一步骤注入失败后重试能够收敛到唯一成功或失败终态。
+
+## Routing Key 分派与 Handler 边界
+
+> 变更批次：`26-09-23_0`
+> 变更来源：`implement-regulations`
+> 落地状态：`已实现`
+
+- RabbitMQ 消费入口必须向 Worker 传递业务 Routing Key；Retry Queue 回流时使用消息 Header 中的 `x-original-routing-key` 恢复原始业务 Routing Key，不把 `retry.1`、`retry.2` 或 `retry.3` 当作业务操作。
+- `IndexingDispatcher` 只负责验证 Routing Key 与消息体 `operation` 一致，并使用结构模式匹配分派消息；不得在 Dispatcher 中实现索引、删除或失败补偿逻辑。
+- 每个业务 Routing Key 必须一一对应同名语义的独立 Handler：`document.ingest` 对应 `DocumentIngestHandler`、`document.reindex` 对应 `DocumentReindexHandler`、`document.delete` 对应 `DocumentDeleteHandler`。Handler 之间不得互相继承；Ingest 与 Reindex 当前相同的底层索引步骤通过普通 `DocumentIndexer` 服务复用。
+- Broker 继续拥有 ACK、有限重试和死信投递；Handler 只报告成功或抛出失败，不直接 ACK、NACK 或发布 Retry 消息。
+
+验收条件：自动化测试证明三个业务 Routing Key 分派到正确处理分支；未知 Routing Key 和 Routing Key/operation 不一致时明确失败；Retry Queue 回流能够恢复原始业务 Routing Key；既有重复投递、过期版本、部分失败和删除幂等测试继续通过。

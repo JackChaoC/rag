@@ -66,7 +66,7 @@ class RabbitBroker:
         )
 
     async def consume(
-        self, handler: Callable[[IndexMessage], Awaitable[None]],
+        self, handler: Callable[[str, IndexMessage], Awaitable[None]],
         on_dead: Callable[[IndexMessage, Exception], Awaitable[None]] | None = None,
     ) -> None:
         if self.main_queue is None:
@@ -75,8 +75,9 @@ class RabbitBroker:
         async def callback(incoming: IncomingMessage) -> None:
             message = IndexMessage.decode(incoming.body)
             retry_count = int(incoming.headers.get("x-retry-count", 0))
+            routing_key = _operation_routing_key(incoming)
             try:
-                await handler(message)
+                await handler(routing_key, message)
             except Exception as exc:
                 if retry_count < 3:
                     assert self.retry_exchange is not None
@@ -86,7 +87,7 @@ class RabbitBroker:
                             headers={
                                 "x-retry-count": retry_count + 1,
                                 "x-last-error": str(exc)[:512],
-                                "x-original-routing-key": message.operation.routing_key,
+                                "x-original-routing-key": routing_key,
                             },
                         ),
                         routing_key=f"retry.{retry_count + 1}", mandatory=True,
@@ -114,3 +115,10 @@ class RabbitBroker:
     async def close(self) -> None:
         if self.connection is not None:
             await self.connection.close()
+
+
+def _operation_routing_key(incoming: IncomingMessage) -> str:
+    value = incoming.headers.get("x-original-routing-key", incoming.routing_key)
+    if isinstance(value, bytes):
+        return value.decode()
+    return str(value)

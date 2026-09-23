@@ -1,22 +1,10 @@
-from __future__ import annotations
-
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
-class ErrorResponse(BaseModel):
-    code: str
-    message: str
-
-
-class HealthResponse(BaseModel):
-    ready: bool
-    dependencies: dict[str, bool]
-
-
-class DocumentResponse(BaseModel):
+class DocumentResult(BaseModel):
     document_id: UUID
     source_uri: str
     title: str | None
@@ -25,12 +13,7 @@ class DocumentResponse(BaseModel):
     metadata: dict[str, Any]
 
 
-class SearchRequest(BaseModel):
-    query: str = Field(min_length=1)
-    top_k: int = Field(default=5, ge=1, le=10)
-
-
-class SearchItem(BaseModel):
+class SearchResult(BaseModel):
     chunk_id: UUID
     document_id: UUID
     score: float
@@ -42,7 +25,7 @@ class SearchItem(BaseModel):
     metadata: dict[str, Any]
 
 
-class ChunkResponse(BaseModel):
+class ChunkResult(BaseModel):
     chunk_id: UUID
     document_id: UUID
     content: str

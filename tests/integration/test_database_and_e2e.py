@@ -10,13 +10,13 @@ from sqlalchemy.exc import IntegrityError
 
 from rag.config import Settings
 from rag.container import Container
-from rag.indexing import IndexingWorker
 from rag.infrastructure.database.client import Database
 from rag.infrastructure.database.entities.chunk import Chunk
 from rag.infrastructure.database.entities.document import Document, DocumentStatus, SourceType
 from rag.infrastructure.database.models import ChunkRecord, DocumentRecord
 from rag.infrastructure.database.repositories.chunk_repository import ChunkRepository
 from rag.infrastructure.database.repositories.document_repository import DocumentRepository
+from rag.worker.factory import create_worker_services
 
 
 pytestmark = pytest.mark.integration
@@ -81,8 +81,16 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
     settings = Settings()
     container = Container(settings)
     await container.start()
-    worker = IndexingWorker(container.documents, container.chunks, container.embedder, container.vectors)
-    await container.broker.consume(worker.handle, worker.fail)
+    worker = create_worker_services(
+        container.documents,
+        container.chunks,
+        container.embedder,
+        container.vectors,
+    )
+    await container.broker.consume(
+        worker.dispatcher.dispatch,
+        worker.failure_handler.handle,
+    )
     source_uri = f"e2e-{uuid4()}.pdf"
     document_id = None
     output = BytesIO()
@@ -122,7 +130,7 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
         assert unchanged.version == ready.current_version
 
         await container.vectors.recreate(dimension)
-        assert await worker.rebuild_all() == len(chunks)
+        assert await worker.rebuild_handler.handle() == len(chunks)
         rebuilt = await container.qdrant.retrieve(
             settings.qdrant_collection, ids=[str(chunk.id) for chunk in chunks],
             with_payload=True, with_vectors=False,

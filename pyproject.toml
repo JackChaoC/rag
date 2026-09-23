@@ -31,7 +31,7 @@ dev = [
 
 [project.scripts]
 rag = "rag.main:main"
-rag-worker = "rag.worker:main"
+rag-worker = "rag.worker.worker:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
