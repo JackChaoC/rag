@@ -26,6 +26,29 @@ The browser console is available at `http://127.0.0.1:8000/ui/`, Swagger at
 `http://127.0.0.1:8000/docs`, and the Streamable HTTP MCP endpoint at
 `http://127.0.0.1:8000/mcp`.
 
+## Dependency injection
+
+`src/rag/container.py` declares the shared dependency graph using
+`dependency-injector`. Each HTTP/MCP process and worker owns a separate container.
+Configuration comes from the existing Pydantic `Settings`; connections use
+`Resource` providers and repositories/use cases/handlers use `Factory`.
+
+HTTP routes use `@inject` with `Depends(Provide[Container.…])`. MCP receives
+the three use-case providers explicitly and resolves them when a tool is called.
+The worker resolves its dispatcher and failure handler from the same container.
+Business classes retain ordinary constructor arguments and do not import the
+container or injection framework.
+
+`src/rag/resources.py` manages startup and reverse-order cleanup, including
+partial startup failures. The broker stops consumption and drains in-flight
+callbacks before the remaining clients are closed. Repository methods continue
+to own their individual database sessions.
+
+Tests replace dependencies using `with container.some_provider.override(fake):`.
+Async provider resolution uses `await resolve(container.some_provider)`, which
+also supports synchronous test overrides. HTTP wiring is module-scoped: use one
+active wired app per process and unwire its container after tests/lifespan exit.
+
 ## Verification
 
 Fast tests use controlled substitutes and do not require local services:

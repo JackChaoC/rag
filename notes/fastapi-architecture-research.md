@@ -1,3 +1,10 @@
+## 后续实施说明
+
+2026-09-24：项目已采用 dependency-injector 统一装配 HTTP、MCP 与 Worker。
+本文保留当时的调研结论；其中手写 Container、getter 和
+`app.dependency_overrides` 的实施建议已由声明式 providers 与 provider override 取代。
+当前实现以 `src/rag/container.py` 及架构规范为准。
+
 ## FastAPI 工程化与依赖注入调研
 
 调研日期：2026-09-23

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
@@ -21,12 +22,12 @@ class CheckHealth:
         database: Database,
         broker: RabbitBroker,
         qdrant: AsyncQdrantClient,
-        ollama_url: str,
+        http_client_factory: Callable[[], httpx.AsyncClient],
     ) -> None:
         self._database = database
         self._broker = broker
         self._qdrant = qdrant
-        self._ollama_url = ollama_url
+        self._http_client_factory = http_client_factory
 
     async def execute(self) -> HealthStatus:
         checks = {
@@ -58,7 +59,7 @@ class CheckHealth:
 
     async def _check_ollama(self) -> bool:
         try:
-            async with httpx.AsyncClient(base_url=self._ollama_url, timeout=2) as client:
+            async with self._http_client_factory() as client:
                 return (await client.get("/api/tags")).is_success
         except Exception:
             return False

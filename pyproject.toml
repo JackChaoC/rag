@@ -20,6 +20,7 @@ dependencies = [
     "qdrant-client>=1.15.1,<1.17",
     "sqlalchemy[asyncio]>=2.0,<3",
     "uvicorn>=0.37.0",
+    "dependency-injector>=4.49.1,<5",
 ]
 
 [dependency-groups]

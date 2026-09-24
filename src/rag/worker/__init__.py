@@ -1,3 +1,1 @@
-from rag.worker.worker import main
-
-__all__ = ["main"]
+"""Message handlers and the standalone worker entry point."""

@@ -1,9 +1,8 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from uuid import UUID
 
+from dependency_injector.wiring import inject
 from fastapi import APIRouter, File, Form, UploadFile
 
 from rag.infrastructure.database.entities.document import SourceType
@@ -15,7 +14,6 @@ from rag.interfaces.http.dependencies import (
     ReindexDocumentDep,
 )
 from rag.interfaces.http.schemas import ChunkResponse, DocumentResponse, ErrorResponse
-
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -30,6 +28,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
         503: {"model": ErrorResponse},
     },
 )
+@inject
 async def ingest_document(
     use_case: IngestDocumentDep,
     file: UploadFile = File(...),
@@ -48,6 +47,7 @@ async def ingest_document(
 
 
 @router.post("/{document_id}/reindex", status_code=202, response_model=DocumentResponse)
+@inject
 async def reindex_document(
     document_id: UUID,
     use_case: ReindexDocumentDep,
@@ -58,6 +58,7 @@ async def reindex_document(
 
 
 @router.delete("/{document_id}", status_code=202, response_model=DocumentResponse)
+@inject
 async def delete_document(
     document_id: UUID,
     use_case: DeleteDocumentDep,
@@ -66,11 +67,13 @@ async def delete_document(
 
 
 @router.get("", response_model=list[DocumentResponse])
+@inject
 async def list_documents(use_case: ListDocumentsDep) -> list[DocumentResponse]:
     return [_document_response(item) for item in await use_case.execute()]
 
 
 @router.get("/{document_id}/chunks/{chunk_id}", response_model=ChunkResponse)
+@inject
 async def get_chunk(
     document_id: UUID,
     chunk_id: UUID,

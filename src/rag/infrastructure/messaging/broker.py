@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 import aio_pika
@@ -15,7 +16,9 @@ DEAD_QUEUE = "rag.indexing.dead"
 
 
 class RabbitBroker:
-    def __init__(self, url: str, retry_delays: tuple[int, int, int], prefetch: int = 4) -> None:
+    def __init__(
+        self, url: str, retry_delays: tuple[int, int, int], prefetch: int = 4
+    ) -> None:
         self._url = url
         self._retry_delays = retry_delays
         self._prefetch = prefetch
@@ -25,20 +28,32 @@ class RabbitBroker:
         self.retry_exchange: aio_pika.abc.AbstractExchange | None = None
         self.dead_exchange: aio_pika.abc.AbstractExchange | None = None
         self.main_queue: aio_pika.abc.AbstractQueue | None = None
+        self._consumer_tag: str | None = None
+        self._active_callbacks: set[asyncio.Task] = set()
 
     async def connect(self) -> None:
         self.connection = await aio_pika.connect_robust(self._url)
-        self.channel = await self.connection.channel(publisher_confirms=True, on_return_raises=True)
+        self.channel = await self.connection.channel(
+            publisher_confirms=True, on_return_raises=True
+        )
         await self.channel.set_qos(prefetch_count=self._prefetch)
         await self._declare_topology()
 
     async def _declare_topology(self) -> None:
         assert self.channel is not None
-        self.main_exchange = await self.channel.declare_exchange(MAIN_EXCHANGE, ExchangeType.DIRECT, durable=True)
-        self.retry_exchange = await self.channel.declare_exchange(RETRY_EXCHANGE, ExchangeType.DIRECT, durable=True)
-        self.dead_exchange = await self.channel.declare_exchange(DEAD_EXCHANGE, ExchangeType.DIRECT, durable=True)
+        self.main_exchange = await self.channel.declare_exchange(
+            MAIN_EXCHANGE, ExchangeType.DIRECT, durable=True
+        )
+        self.retry_exchange = await self.channel.declare_exchange(
+            RETRY_EXCHANGE, ExchangeType.DIRECT, durable=True
+        )
+        self.dead_exchange = await self.channel.declare_exchange(
+            DEAD_EXCHANGE, ExchangeType.DIRECT, durable=True
+        )
         self.main_queue = await self.channel.declare_queue(
-            MAIN_QUEUE, durable=True, arguments={"x-dead-letter-exchange": DEAD_EXCHANGE},
+            MAIN_QUEUE,
+            durable=True,
+            arguments={"x-dead-letter-exchange": DEAD_EXCHANGE},
         )
         for key in ("document.ingest", "document.reindex", "document.delete"):
             await self.main_queue.bind(self.main_exchange, key)
@@ -48,7 +63,8 @@ class RabbitBroker:
         await dead.bind(self.dead_exchange, "document.failed")
         for index, delay in enumerate(self._retry_delays, start=1):
             queue = await self.channel.declare_queue(
-                f"rag.indexing.retry.{index}", durable=True,
+                f"rag.indexing.retry.{index}",
+                durable=True,
                 arguments={
                     "x-message-ttl": delay * 1000,
                     "x-dead-letter-exchange": MAIN_EXCHANGE,
@@ -66,13 +82,14 @@ class RabbitBroker:
         )
 
     async def consume(
-        self, handler: Callable[[str, IndexMessage], Awaitable[None]],
+        self,
+        handler: Callable[[str, IndexMessage], Awaitable[None]],
         on_dead: Callable[[IndexMessage, Exception], Awaitable[None]] | None = None,
     ) -> None:
         if self.main_queue is None:
             raise RuntimeError("RabbitMQ is not connected")
 
-        async def callback(incoming: IncomingMessage) -> None:
+        async def process(incoming: IncomingMessage) -> None:
             message = IndexMessage.decode(incoming.body)
             retry_count = int(incoming.headers.get("x-retry-count", 0))
             routing_key = _operation_routing_key(incoming)
@@ -83,14 +100,16 @@ class RabbitBroker:
                     assert self.retry_exchange is not None
                     await self.retry_exchange.publish(
                         Message(
-                            incoming.body, delivery_mode=DeliveryMode.PERSISTENT,
+                            incoming.body,
+                            delivery_mode=DeliveryMode.PERSISTENT,
                             headers={
                                 "x-retry-count": retry_count + 1,
                                 "x-last-error": str(exc)[:512],
                                 "x-original-routing-key": routing_key,
                             },
                         ),
-                        routing_key=f"retry.{retry_count + 1}", mandatory=True,
+                        routing_key=f"retry.{retry_count + 1}",
+                        mandatory=True,
                     )
                 else:
                     if on_dead is not None:
@@ -98,23 +117,43 @@ class RabbitBroker:
                     assert self.dead_exchange is not None
                     await self.dead_exchange.publish(
                         Message(
-                            incoming.body, delivery_mode=DeliveryMode.PERSISTENT,
-                            headers={"x-retry-count": retry_count, "x-last-error": str(exc)[:512]},
+                            incoming.body,
+                            delivery_mode=DeliveryMode.PERSISTENT,
+                            headers={
+                                "x-retry-count": retry_count,
+                                "x-last-error": str(exc)[:512],
+                            },
                         ),
-                        routing_key="document.failed", mandatory=True,
+                        routing_key="document.failed",
+                        mandatory=True,
                     )
                 await incoming.ack()
             else:
                 await incoming.ack()
 
-        await self.main_queue.consume(callback, no_ack=False)
+        async def callback(incoming: IncomingMessage) -> None:
+            task = asyncio.current_task()
+            self._active_callbacks.add(task)
+            try:
+                await process(incoming)
+            finally:
+                self._active_callbacks.discard(task)
+
+        self._consumer_tag = await self.main_queue.consume(callback, no_ack=False)
 
     async def ping(self) -> bool:
         return bool(self.connection and not self.connection.is_closed)
 
     async def close(self) -> None:
-        if self.connection is not None:
-            await self.connection.close()
+        try:
+            if self.main_queue is not None and self._consumer_tag is not None:
+                await self.main_queue.cancel(self._consumer_tag)
+                self._consumer_tag = None
+            if self._active_callbacks:
+                await asyncio.gather(*self._active_callbacks, return_exceptions=True)
+        finally:
+            if self.connection is not None:
+                await self.connection.close()
 
 
 def _operation_routing_key(incoming: IncomingMessage) -> str:

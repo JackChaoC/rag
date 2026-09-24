@@ -1,13 +1,14 @@
+from dependency_injector.wiring import inject
 from fastapi import APIRouter
 
 from rag.interfaces.http.dependencies import SearchKnowledgeDep
 from rag.interfaces.http.schemas import SearchItem, SearchRequest
 
-
 router = APIRouter(tags=["search"])
 
 
 @router.post("/search", response_model=list[SearchItem])
+@inject
 async def search(
     request: SearchRequest,
     use_case: SearchKnowledgeDep,

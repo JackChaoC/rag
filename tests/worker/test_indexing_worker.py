@@ -1,12 +1,34 @@
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from dependency_injector import providers
 
+from rag.container import Container
 from rag.infrastructure.database.entities.chunk import Chunk
-from rag.infrastructure.database.entities.document import Document, DocumentStatus, SourceType
+from rag.infrastructure.database.entities.document import (
+    Document,
+    DocumentStatus,
+    SourceType,
+)
 from rag.infrastructure.messaging.models import IndexMessage, IndexOperation
 from rag.worker.dispatcher import IndexingDispatcher
-from rag.worker.factory import create_worker_services
+
+
+def worker_services(documents, chunks, embedder, vectors):
+    container = Container()
+    for name, value in {
+        "documents": documents,
+        "chunks": chunks,
+        "embedder": embedder,
+        "vectors": vectors,
+    }.items():
+        getattr(container, name).override(providers.Object(value))
+    return SimpleNamespace(
+        dispatcher=container.dispatcher(),
+        failure_handler=container.failure_handler(),
+        rebuild_handler=container.rebuild_handler(),
+    )
 
 
 class Documents:
@@ -42,12 +64,18 @@ class Chunks:
         self.chunks = chunks
 
     async def for_version(self, document_id, version):
-        return [item for item in self.chunks if item.document_id == document_id and item.version == version]
+        return [
+            item
+            for item in self.chunks
+            if item.document_id == document_id and item.version == version
+        ]
 
     async def all_ids(self, document_id, *, exclude_version=None):
         return [
-            item.id for item in self.chunks
-            if item.document_id == document_id and (exclude_version is None or item.version != exclude_version)
+            item.id
+            for item in self.chunks
+            if item.document_id == document_id
+            and (exclude_version is None or item.version != exclude_version)
         ]
 
 
@@ -97,25 +125,35 @@ class RecordingHandler:
 
 
 def setup(status=DocumentStatus.PENDING):
-    doc = Document(uuid4(), "doc.md", SourceType.MARKDOWN, "text", "hash", status=status)
+    doc = Document(
+        uuid4(), "doc.md", SourceType.MARKDOWN, "text", "hash", status=status
+    )
     chunk = Chunk(uuid4(), doc.id, 1, 0, "text")
     documents, chunks, vectors = Documents(doc), Chunks([chunk]), Vectors()
-    services = create_worker_services(documents, chunks, Embedder(), vectors)
+    services = worker_services(documents, chunks, Embedder(), vectors)
     return doc, chunk, services, vectors
 
 
 @pytest.mark.asyncio
 async def test_worker_embeds_document_title_heading_and_body() -> None:
     doc = Document(
-        uuid4(), "doc.md", SourceType.MARKDOWN, "text", "hash",
+        uuid4(),
+        "doc.md",
+        SourceType.MARKDOWN,
+        "text",
+        "hash",
         title="Database Guide",
     )
     chunk = Chunk(
-        uuid4(), doc.id, 1, 0, "## Migration\nAlembic manages revisions.",
+        uuid4(),
+        doc.id,
+        1,
+        0,
+        "## Migration\nAlembic manages revisions.",
         metadata={"heading": "Migration"},
     )
     embedder = Embedder()
-    services = create_worker_services(Documents(doc), Chunks([chunk]), embedder, Vectors())
+    services = worker_services(Documents(doc), Chunks([chunk]), embedder, Vectors())
     message = IndexMessage(doc.id, IndexOperation.INGEST, 1)
 
     await services.dispatcher.dispatch(message.operation.routing_key, message)
@@ -171,7 +209,7 @@ async def test_qdrant_success_then_postgres_failure_converges_on_retry() -> None
     chunk = Chunk(uuid4(), doc.id, 1, 0, "text")
     documents = ActivateFailsOnce(doc)
     vectors = Vectors()
-    services = create_worker_services(documents, Chunks([chunk]), Embedder(), vectors)
+    services = worker_services(documents, Chunks([chunk]), Embedder(), vectors)
     message = IndexMessage(doc.id, IndexOperation.INGEST, 1)
 
     with pytest.raises(RuntimeError, match="postgres switch failed"):

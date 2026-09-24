@@ -1,5 +1,17 @@
 # 系统边界与数据所有权
 
+## 依赖注入与资源生命周期
+
+- 使用 `dependency-injector` 的 `DeclarativeContainer` 统一声明 HTTP、MCP 和 Worker 的依赖图；每个运行进程创建自己的容器。
+- 配置由 Pydantic Settings 校验后载入 Configuration；Database、RabbitBroker、Qdrant 和 Ollama Embedder 使用 Resource，Repository、Use Case、Indexer、Handler 和 Dispatcher 使用 Factory。
+- HTTP 通过 `@inject` 与 `Depends(Provide[…])` 注入；MCP 通过显式传入的具体 provider 解析 Use Case，依赖参数不得出现在 Tool schema 中。
+- 业务类保持普通构造函数注入，不依赖 Container、Depends 或 Provide。Worker 不再维护独立 factory。
+- 数据库共享 session factory，不共享 AsyncSession；session 和事务边界继续由 Repository 管理。
+- 启动失败、运行异常或取消均须清理资源；停止消费并等待处理中消息结束后，再关闭数据库、向量库和 Embedding 客户端。
+- 测试使用 provider override 并恢复覆盖；HTTP wiring 在应用退出或测试结束时解除。同一进程只运行一个已 wiring 的 HTTP 应用。
+
+验收：HTTP/MCP provider 替换、异步解析、Tool schema、部分启动失败、任务取消、消费退出和原有索引测试均通过。
+
 ## 组件职责与依赖方向
 
 > 变更批次：`26-09-19_1`

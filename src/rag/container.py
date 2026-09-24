@@ -1,16 +1,22 @@
-from __future__ import annotations
+import httpx
+from dependency_injector import containers, providers
 
-from qdrant_client import AsyncQdrantClient
-
-from rag.config import Settings
+from rag.config import Settings, get_settings
 from rag.core.document_processing.parser import DocumentParser
 from rag.core.retrieval.vector_search import VectorSearch
-from rag.infrastructure.database.client import Database
 from rag.infrastructure.database.repositories.chunk_repository import ChunkRepository
-from rag.infrastructure.database.repositories.document_repository import DocumentRepository
-from rag.infrastructure.embedding.ollama_embedder import OllamaEmbedder
-from rag.infrastructure.messaging.broker import RabbitBroker
-from rag.infrastructure.vector_store.repositories.vector_repository import VectorRepository
+from rag.infrastructure.database.repositories.document_repository import (
+    DocumentRepository,
+)
+from rag.infrastructure.vector_store.repositories.vector_repository import (
+    VectorRepository,
+)
+from rag.resources import (
+    broker_resource,
+    database_resource,
+    embedder_resource,
+    qdrant_resource,
+)
 from rag.use_cases.check_health import CheckHealth
 from rag.use_cases.delete_document import DeleteDocument
 from rag.use_cases.get_document_chunk import GetDocumentChunk
@@ -18,40 +24,115 @@ from rag.use_cases.ingest_document import IngestDocument
 from rag.use_cases.list_documents import ListDocuments
 from rag.use_cases.reindex_document import ReindexDocument
 from rag.use_cases.search_knowledge import SearchKnowledge
+from rag.worker.dispatcher import IndexingDispatcher
+from rag.worker.document_indexer import DocumentIndexer
+from rag.worker.handlers import (
+    DocumentDeleteHandler,
+    DocumentIngestHandler,
+    DocumentReindexHandler,
+    FailureHandler,
+    RebuildHandler,
+)
 
 
-class Container:
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        self.database = Database(settings.database_url)
-        self.broker = RabbitBroker(settings.rabbitmq_url, settings.rabbitmq_retry_delays, settings.rabbitmq_prefetch)
-        self.qdrant = AsyncQdrantClient(url=settings.qdrant_url)
-        self.embedder = OllamaEmbedder(
-            settings.ollama_url, settings.embedding_model, num_gpu=settings.ollama_num_gpu,
-        )
-        self.health = CheckHealth(
-            self.database, self.broker, self.qdrant, settings.ollama_url,
-        )
+class Container(containers.DeclarativeContainer):
+    config = providers.Configuration()
+    database = providers.Resource(database_resource, config.database_url)
+    broker = providers.Resource(
+        broker_resource,
+        config.rabbitmq_url,
+        config.rabbitmq_retry_delays,
+        config.rabbitmq_prefetch,
+    )
+    qdrant = providers.Resource(qdrant_resource, config.qdrant_url)
+    embedder = providers.Resource(
+        embedder_resource,
+        config.ollama_url,
+        config.embedding_model,
+        config.ollama_num_gpu,
+    )
+    sessions = database.provided.require_session_factory.call()
+    documents = providers.Factory(DocumentRepository, sessions=sessions)
+    chunks = providers.Factory(ChunkRepository, sessions=sessions)
+    vectors = providers.Factory(
+        VectorRepository, client=qdrant, collection=config.qdrant_collection
+    )
+    parser = providers.Factory(DocumentParser)
+    ingest_document = providers.Factory(
+        IngestDocument,
+        parser=parser,
+        documents=documents,
+        publish=broker.provided.publish,
+    )
+    reindex_document = providers.Factory(
+        ReindexDocument,
+        parser=parser,
+        documents=documents,
+        publish=broker.provided.publish,
+    )
+    delete_document = providers.Factory(
+        DeleteDocument, documents=documents, publish=broker.provided.publish
+    )
+    list_documents = providers.Factory(ListDocuments, documents=documents)
+    get_document_chunk = providers.Factory(GetDocumentChunk, chunks=chunks)
+    vector_search = providers.Factory(
+        VectorSearch,
+        embedder=embedder,
+        vectors=vectors,
+        chunks=chunks,
+        max_candidates=config.search_max_candidates,
+    )
+    search_knowledge = providers.Factory(SearchKnowledge, search=vector_search)
+    health_http_client = providers.Factory(
+        httpx.AsyncClient,
+        base_url=config.ollama_url,
+        timeout=2,
+    )
+    check_health = providers.Factory(
+        CheckHealth,
+        database=database,
+        broker=broker,
+        qdrant=qdrant,
+        http_client_factory=health_http_client.provider,
+    )
+    document_indexer = providers.Factory(
+        DocumentIndexer,
+        documents=documents,
+        chunks=chunks,
+        embedder=embedder,
+        vectors=vectors,
+    )
+    document_ingest_handler = providers.Factory(
+        DocumentIngestHandler, indexer=document_indexer
+    )
+    document_reindex_handler = providers.Factory(
+        DocumentReindexHandler, indexer=document_indexer
+    )
+    document_delete_handler = providers.Factory(
+        DocumentDeleteHandler,
+        documents=documents,
+        chunks=chunks,
+        vectors=vectors,
+    )
+    dispatcher = providers.Factory(
+        IndexingDispatcher,
+        document_ingest_handler=document_ingest_handler,
+        document_reindex_handler=document_reindex_handler,
+        document_delete_handler=document_delete_handler,
+    )
+    failure_handler = providers.Factory(
+        FailureHandler, documents=documents, chunks=chunks, vectors=vectors
+    )
+    rebuild_handler = providers.Factory(
+        RebuildHandler,
+        documents=documents,
+        chunks=chunks,
+        embedder=embedder,
+        vectors=vectors,
+    )
 
-    async def start(self) -> None:
-        await self.database.connect()
-        await self.broker.connect()
-        sessions = self.database.require_session_factory()
-        self.documents = DocumentRepository(sessions)
-        self.chunks = ChunkRepository(sessions)
-        self.vectors = VectorRepository(self.qdrant, self.settings.qdrant_collection)
-        parser = DocumentParser()
-        self.ingest = IngestDocument(parser, self.documents, self.broker.publish)
-        self.reindex = ReindexDocument(parser, self.documents, self.broker.publish)
-        self.delete = DeleteDocument(self.documents, self.broker.publish)
-        self.list_documents = ListDocuments(self.documents)
-        self.get_chunk = GetDocumentChunk(self.chunks)
-        self.search = SearchKnowledge(VectorSearch(
-            self.embedder, self.vectors, self.chunks, self.settings.search_max_candidates,
-        ))
 
-    async def close(self) -> None:
-        await self.broker.close()
-        await self.embedder.aclose()
-        await self.qdrant.close()
-        await self.database.close()
+def create_container(settings: Settings | None = None) -> Container:
+    container = Container()
+    container.config.from_dict((settings or get_settings()).model_dump())
+    return container

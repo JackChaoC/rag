@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -18,10 +19,16 @@ class Queue:
     async def consume(self, callback, no_ack):
         self.callback = callback
         self.no_ack = no_ack
+        return "consumer"
+
+    async def cancel(self, tag):
+        self.cancelled = tag
 
 
 class Incoming:
-    def __init__(self, message, retry_count=0, routing_key=None, original_routing_key=None):
+    def __init__(
+        self, message, retry_count=0, routing_key=None, original_routing_key=None
+    ):
         self.body = message.encode()
         self.headers = {"x-retry-count": retry_count}
         if original_routing_key is not None:
@@ -54,6 +61,39 @@ async def test_recoverable_failure_is_confirmed_to_retry_before_ack() -> None:
     assert retried.headers["x-original-routing-key"] == "document.ingest"
     assert mandatory is True
     assert incoming.acked is True
+
+
+@pytest.mark.asyncio
+async def test_close_stops_consumption_and_waits_for_message_ack():
+    broker = RabbitBroker("amqp://unused", (1, 5, 30))
+    broker.main_queue = Queue()
+    started, finish = asyncio.Event(), asyncio.Event()
+    events = []
+
+    class Connection:
+        async def close(self):
+            events.append("closed")
+
+    broker.connection = Connection()
+
+    async def handle(_key, _message):
+        started.set()
+        await finish.wait()
+        events.append("handled")
+
+    await broker.consume(handle)
+    incoming = Incoming(IndexMessage(uuid4(), IndexOperation.INGEST, 1))
+    task = asyncio.create_task(broker.main_queue.callback(incoming))
+    await started.wait()
+    closing = asyncio.create_task(broker.close())
+    await asyncio.sleep(0)
+    assert broker.main_queue.cancelled == "consumer"
+    assert not closing.done()
+    finish.set()
+    await task
+    await closing
+    assert incoming.acked
+    assert events == ["handled", "closed"]
 
 
 @pytest.mark.asyncio

@@ -3,28 +3,18 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from rag.config import get_settings
-from rag.container import Container
-from rag.worker.factory import create_worker_services
+from rag.container import create_container
+from rag.resources import container_lifespan, resolve
 
 
 async def run() -> None:
-    container = Container(get_settings())
-    await container.start()
-    services = create_worker_services(
-        container.documents,
-        container.chunks,
-        container.embedder,
-        container.vectors,
-    )
-    await container.broker.consume(
-        services.dispatcher.dispatch,
-        services.failure_handler.handle,
-    )
-    try:
+    container = create_container()
+    async with container_lifespan(container):
+        broker = await resolve(container.broker)
+        dispatcher = await resolve(container.dispatcher)
+        failure_handler = await resolve(container.failure_handler)
+        await broker.consume(dispatcher.dispatch, failure_handler.handle)
         await asyncio.Future()
-    finally:
-        await container.close()
 
 
 def main() -> None:

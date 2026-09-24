@@ -6,30 +6,35 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from rag.config import get_settings
-from rag.container import Container
+from rag.container import Container, create_container
 from rag.interfaces.http.exception_handlers import register_exception_handlers
-from rag.interfaces.http.routes import api_router, root_router
-from rag.interfaces.mcp.dependencies import McpDependencies
+from rag.interfaces.http.routes import (
+    api_router,
+    documents,
+    health,
+    root_router,
+    search,
+)
 from rag.interfaces.mcp.server import create_mcp_server
+from rag.resources import container_lifespan
 
 
 def create_app(container: Container | None = None) -> FastAPI:
-    container = container or Container(get_settings())
+    container = container or create_container()
+    container.wire(modules=[documents, search, health])
     mcp = create_mcp_server(
-        McpDependencies(
-            provide_search_knowledge=lambda: container.search,
-            provide_get_document_chunk=lambda: container.get_chunk,
-            provide_list_documents=lambda: container.list_documents,
-        )
+        search_knowledge_provider=container.search_knowledge,
+        get_document_chunk_provider=container.get_document_chunk,
+        list_documents_provider=container.list_documents,
     )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        await container.start()
-        async with mcp.session_manager.run():
-            yield
-        await container.close()
+        try:
+            async with container_lifespan(container), mcp.session_manager.run():
+                yield
+        finally:
+            container.unwire()
 
     app = FastAPI(title="RAG Service", version="0.1.0", lifespan=lifespan)
     app.state.container = container
