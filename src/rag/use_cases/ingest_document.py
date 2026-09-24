@@ -32,7 +32,7 @@ class IngestDocument:
         if not content:
             raise ValueError("parsed document is empty")
         digest = hashlib.sha256(content.encode()).hexdigest()
-        existing = await self._documents.get_by_source_uri(source_uri)
+        existing = await self._documents.get_by_source_uri(source_uri) #todo: check source_uri before parse data
         if existing:
             if existing.content_hash != digest:
                 raise ConflictError("source_uri already exists with different content; use reindex")
