@@ -8,10 +8,10 @@ import pytest
 from dependency_injector import providers
 from mcp import Client
 
-from rag.container import create_container
+from rag.containers import create_container
+from rag.containers.resources import container_lifespan, resolve
 from rag.interfaces.http.app import create_app
 from rag.interfaces.mcp.server import create_mcp_server
-from rag.resources import container_lifespan, resolve
 
 
 def resource_container(events, fail=None):
@@ -23,13 +23,108 @@ def resource_container(events, fail=None):
         try:
             if name == fail:
                 raise RuntimeError("startup failed")
-            yield SimpleNamespace(require_session_factory=lambda: object())
+            yield SimpleNamespace(
+                require_session_factory=lambda: object(),
+                publish=AsyncMock(),
+            )
         finally:
             events.append("close " + name)
 
     for name in ("database", "qdrant", "embedder", "broker"):
-        getattr(container, name).override(providers.Resource(resource, name))
+        getattr(container.resources, name).override(providers.Resource(resource, name))
     return container
+
+
+@pytest.mark.asyncio
+async def test_singletons_are_shared_within_container_and_isolated_between_containers():
+    first = resource_container([])
+    second = resource_container([])
+    names = (
+        "repositories.documents",
+        "repositories.chunks",
+        "repositories.vectors",
+        "use_cases.delete_document",
+        "use_cases.list_documents",
+        "use_cases.get_document_chunk",
+        "core.vector_search",
+        "use_cases.search_knowledge",
+        "use_cases.check_health",
+        "worker.document_indexer",
+        "worker.document_ingest_handler",
+        "worker.document_reindex_handler",
+        "worker.document_delete_handler",
+        "worker.dispatcher",
+        "worker.failure_handler",
+        "worker.rebuild_handler",
+    )
+    async with container_lifespan(first), container_lifespan(second):
+        for name in names:
+            layer, provider_name = name.split(".")
+            provider = getattr(getattr(first, layer), provider_name)
+            a, b = await asyncio.gather(resolve(provider), resolve(provider))
+            assert a is b, name
+            assert a is not await resolve(
+                getattr(getattr(second, layer), provider_name)
+            ), name
+        ingest = await resolve(first.worker.document_ingest_handler)
+        reindex = await resolve(first.worker.document_reindex_handler)
+        assert ingest._indexer is reindex._indexer
+
+
+@pytest.mark.asyncio
+async def test_parser_owners_remain_independent_but_share_repositories():
+    container = resource_container([])
+    container.core.parser.override(providers.Factory(object))
+    async with container_lifespan(container):
+        for name in ("ingest_document", "reindex_document"):
+            provider = getattr(container.use_cases, name)
+            a, b = await resolve(provider), await resolve(provider)
+            assert a is not b
+            assert a._parser is not b._parser
+            assert a._documents is b._documents
+
+
+@pytest.mark.asyncio
+async def test_use_cases_and_worker_share_overridden_repository():
+    container = resource_container([])
+    fake_documents = SimpleNamespace(list=AsyncMock(return_value=[]))
+    with container.repositories.documents.override(providers.Object(fake_documents)):
+        async with container_lifespan(container):
+            use_case = await resolve(container.use_cases.list_documents)
+            indexer = await resolve(container.worker.document_indexer)
+            delete_handler = await resolve(container.worker.document_delete_handler)
+            assert use_case._documents is fake_documents
+            assert indexer._documents is fake_documents
+            assert delete_handler._documents is fake_documents
+            assert await use_case.execute() == []
+
+
+@pytest.mark.asyncio
+async def test_lifespan_restart_rebuilds_singletons_with_fresh_resources():
+    container = resource_container([])
+    async with container_lifespan(container):
+        before = await resolve(container.repositories.vectors)
+    async with container_lifespan(container):
+        after = await resolve(container.repositories.vectors)
+        assert after is not before
+        assert after._client is not before._client
+        assert after._client is await resolve(container.resources.qdrant)
+
+
+@pytest.mark.asyncio
+async def test_override_and_singleton_reset_rebind_consumers():
+    container = resource_container([])
+    async with container_lifespan(container):
+        original = await resolve(container.use_cases.list_documents)
+        fake = SimpleNamespace(list=AsyncMock(return_value=[]))
+        with container.repositories.documents.override(providers.Object(fake)):
+            with container.reset_singletons():
+                service = await resolve(container.use_cases.list_documents)
+                assert service is not original
+                assert await service.execute() == []
+                fake.list.assert_awaited_once()
+        restored = await resolve(container.use_cases.list_documents)
+        assert restored._documents is not fake
 
 
 @pytest.mark.asyncio
@@ -45,9 +140,9 @@ async def test_health_http_client_factory_is_injected_and_closed():
         clients.append(client)
         return client
 
-    container.health_http_client.override(providers.Factory(client_factory))
+    container.resources.health_http_client.override(providers.Factory(client_factory))
     async with container_lifespan(container):
-        health = await resolve(container.check_health)
+        health = await resolve(container.use_cases.check_health)
         assert await health._check_ollama()
         assert await health._check_ollama()
     assert len(clients) == 2
@@ -73,12 +168,12 @@ async def test_resource_cleanup_on_success_and_partial_startup(failure):
         ]
     else:
         async with container_lifespan(container):
-            first = await resolve(container.database)
-            assert await resolve(container.database) is first
-            assert await resolve(container.documents) is not await resolve(
-                container.documents
+            first = await resolve(container.resources.database)
+            assert await resolve(container.resources.database) is first
+            assert await resolve(container.repositories.documents) is await resolve(
+                container.repositories.documents
             )
-            await resolve(container.dispatcher)
+            await resolve(container.worker.dispatcher)
         assert events[-4:] == [
             "close broker",
             "close embedder",
@@ -121,12 +216,12 @@ async def test_http_and_mcp_share_async_provider_and_override_restores():
     async def make_search():
         return original
 
-    container.search_knowledge.override(providers.Coroutine(make_search))
+    container.use_cases.search_knowledge.override(providers.Coroutine(make_search))
     app = create_app(container)
     server = create_mcp_server(
-        search_knowledge_provider=container.search_knowledge,
-        get_document_chunk_provider=container.get_document_chunk,
-        list_documents_provider=container.list_documents,
+        search_knowledge_provider=container.use_cases.search_knowledge,
+        get_document_chunk_provider=container.use_cases.get_document_chunk,
+        list_documents_provider=container.use_cases.list_documents,
     )
     async with (
         app.router.lifespan_context(app),
@@ -139,13 +234,15 @@ async def test_http_and_mcp_share_async_provider_and_override_restores():
         assert (
             await http.post("/v1/search", json={"query": "first"})
         ).status_code == 200
-        with container.search_knowledge.override(providers.Object(replacement)):
+        with container.use_cases.search_knowledge.override(
+            providers.Object(replacement)
+        ):
             assert (
                 await http.post("/v1/search", json={"query": "second"})
             ).status_code == 200
             result = await mcp.call_tool("search_knowledge", {"query": "third"})
             assert not result.is_error
-        assert await resolve(container.search_knowledge) is original
+        assert await resolve(container.use_cases.search_knowledge) is original
         assert original.execute.await_count == 1
         assert replacement.execute.await_count == 2
         tools = (await mcp.list_tools()).tools

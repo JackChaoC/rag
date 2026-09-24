@@ -1,7 +1,8 @@
 from contextlib import AsyncExitStack, asynccontextmanager
 from inspect import isawaitable
 
-from dependency_injector import providers
+import httpx
+from dependency_injector import containers, providers
 from qdrant_client import AsyncQdrantClient
 
 from rag.infrastructure.database.client import Database
@@ -53,16 +54,43 @@ async def embedder_resource(url: str, model: str, num_gpu: int):
         await embedder.aclose()
 
 
+class Resources(containers.DeclarativeContainer):
+    config = providers.Configuration()
+    database = providers.Resource(database_resource, config.database_url)
+    broker = providers.Resource(
+        broker_resource,
+        config.rabbitmq_url,
+        config.rabbitmq_retry_delays,
+        config.rabbitmq_prefetch,
+    )
+    qdrant = providers.Resource(qdrant_resource, config.qdrant_url)
+    embedder = providers.Resource(
+        embedder_resource,
+        config.ollama_url,
+        config.embedding_model,
+        config.ollama_num_gpu,
+    )
+    # Each health probe closes its own client.
+    health_http_client = providers.Factory(
+        httpx.AsyncClient,
+        base_url=config.ollama_url,
+        timeout=2,
+    )
+
+
 @asynccontextmanager
 async def container_lifespan(container):
     # Sequential startup avoids racing initializers after a partial failure.
     # Close the broker before resources used by consumers.
     async with AsyncExitStack() as stack:
+        # Discard cached services after closing resources, including on failure.
+        # A restarted lifespan must resolve dependencies against fresh clients.
+        stack.callback(container.reset_singletons)
         for provider in (
-            container.database,
-            container.qdrant,
-            container.embedder,
-            container.broker,
+            container.resources.database,
+            container.resources.qdrant,
+            container.resources.embedder,
+            container.resources.broker,
         ):
             stack.push_async_callback(_shutdown, provider)
             await resolve(provider)

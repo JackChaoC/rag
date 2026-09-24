@@ -3,7 +3,7 @@
 2026-09-24：项目已采用 dependency-injector 统一装配 HTTP、MCP 与 Worker。
 本文保留当时的调研结论；其中手写 Container、getter 和
 `app.dependency_overrides` 的实施建议已由声明式 providers 与 provider override 取代。
-当前实现以 `src/rag/container.py` 及架构规范为准。
+当前实现以 `src/rag/containers/` 中的分层子容器及架构规范为准。
 
 ## FastAPI 工程化与依赖注入调研
 
@@ -83,7 +83,7 @@ Langflow 展示了复杂系统的混合方案：FastAPI `Depends` 负责请求�
 
 ## 对当前 RAG 仓库的证据判断
 
-当前 [`container.py`](../src/rag/container.py) 集中创建 Database、RabbitMQ、Qdrant、Embedder、Repository 和 Use Case，作为 Composition Root 的方向是合理的；问题是其 `start()` 动态添加 `ingest`、`search` 等属性，对象在启动前并不完整，存在调用顺序耦合。
+调研时的 `container.py` 集中创建 Database、RabbitMQ、Qdrant、Embedder、Repository 和 Use Case，作为 Composition Root 的方向是合理的；问题是其 `start()` 动态添加 `ingest`、`search` 等属性，对象在启动前并不完整，存在调用顺序耦合。该历史实现已被分层子容器取代。
 
 当前 [`interfaces/http/app.py`](../src/rag/interfaces/http/app.py) 同时负责 App 生命周期、异常处理、全部 HTTP 路由、DTO 转换、Health Check、静态文件和 MCP 挂载；而 [`routes/documents.py`](../src/rag/interfaces/http/routes/documents.py) 与 [`routes/search.py`](../src/rag/interfaces/http/routes/search.py) 为空。路由又通过闭包直接访问完整 `container`，所以任何 Route 都能取得所有基础设施和 Use Case。这是当前“依赖传递很乱”的主要原因，不是 `Depends` 本身造成的。
 

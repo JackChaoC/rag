@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from dependency_injector import providers
 
-from rag.container import Container
+from rag.containers import ApplicationContainer
 from rag.infrastructure.database.entities.chunk import Chunk
 from rag.infrastructure.database.entities.document import (
     Document,
@@ -16,18 +16,20 @@ from rag.worker.dispatcher import IndexingDispatcher
 
 
 def worker_services(documents, chunks, embedder, vectors):
-    container = Container()
+    container = ApplicationContainer()
     for name, value in {
         "documents": documents,
         "chunks": chunks,
         "embedder": embedder,
         "vectors": vectors,
     }.items():
-        getattr(container, name).override(providers.Object(value))
+        getattr(
+            container.resources if name == "embedder" else container.repositories, name
+        ).override(providers.Object(value))
     return SimpleNamespace(
-        dispatcher=container.dispatcher(),
-        failure_handler=container.failure_handler(),
-        rebuild_handler=container.rebuild_handler(),
+        dispatcher=container.worker.dispatcher(),
+        failure_handler=container.worker.failure_handler(),
+        rebuild_handler=container.worker.rebuild_handler(),
     )
 
 

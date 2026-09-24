@@ -9,7 +9,8 @@ from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
 from rag.config import Settings
-from rag.container import Container, create_container
+from rag.containers import ApplicationContainer, create_container
+from rag.containers.resources import container_lifespan, resolve
 from rag.infrastructure.database.client import Database
 from rag.infrastructure.database.entities.chunk import Chunk
 from rag.infrastructure.database.entities.document import (
@@ -22,7 +23,6 @@ from rag.infrastructure.database.repositories.chunk_repository import ChunkRepos
 from rag.infrastructure.database.repositories.document_repository import (
     DocumentRepository,
 )
-from rag.resources import container_lifespan, resolve
 
 pytestmark = pytest.mark.integration
 
@@ -33,11 +33,13 @@ def require_services() -> None:
 
 
 async def wait_for_status(
-    container: Container, document_id, status: DocumentStatus, timeout=240
+    container: ApplicationContainer, document_id, status: DocumentStatus, timeout=240
 ):
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
-        document = await (await resolve(container.documents)).get(document_id)
+        document = await (await resolve(container.repositories.documents)).get(
+            document_id
+        )
         if document and document.status is status:
             return document
         if document and document.status is DocumentStatus.FAILED:
@@ -105,10 +107,10 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
     settings = Settings()
     container = create_container(settings)
     async with container_lifespan(container):
-        dispatcher = await resolve(container.dispatcher)
-        failure_handler = await resolve(container.failure_handler)
-        rebuild_handler = await resolve(container.rebuild_handler)
-        broker = await resolve(container.broker)
+        dispatcher = await resolve(container.worker.dispatcher)
+        failure_handler = await resolve(container.worker.failure_handler)
+        rebuild_handler = await resolve(container.worker.rebuild_handler)
+        broker = await resolve(container.resources.broker)
         await broker.consume(dispatcher.dispatch, failure_handler.handle)
         source_uri = f"e2e-{uuid4()}.pdf"
         document_id = None
@@ -121,7 +123,9 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
         page.save()
 
         try:
-            created = await (await resolve(container.ingest_document)).execute(
+            created = await (
+                await resolve(container.use_cases.ingest_document)
+            ).execute(
                 output.getvalue(),
                 source_uri,
                 SourceType.PDF,
@@ -130,18 +134,18 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
             )
             document_id = created.document_id
             ready = await wait_for_status(container, document_id, DocumentStatus.READY)
-            chunks = await (await resolve(container.chunks)).for_version(
+            chunks = await (await resolve(container.repositories.chunks)).for_version(
                 document_id, ready.current_version
             )
             assert chunks
             assert "PostgreSQL stores document" in ready.content
 
-            info = await (await resolve(container.qdrant)).get_collection(
+            info = await (await resolve(container.resources.qdrant)).get_collection(
                 settings.qdrant_collection
             )
             dimension = info.config.params.vectors.size
             assert dimension > 0
-            points = await (await resolve(container.qdrant)).retrieve(
+            points = await (await resolve(container.resources.qdrant)).retrieve(
                 settings.qdrant_collection,
                 ids=[str(chunks[0].id)],
                 with_payload=True,
@@ -153,20 +157,20 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
                 f"embedding_model={settings.embedding_model} dimension={dimension} distance=Cosine"
             )
 
-            results = await (await resolve(container.search_knowledge)).execute(
-                "Where are embedding vectors stored?", 1
-            )
+            results = await (
+                await resolve(container.use_cases.search_knowledge)
+            ).execute("Where are embedding vectors stored?", 1)
             assert results and results[0].document_id == document_id
             assert results[0].source_uri == source_uri
 
-            unchanged = await (await resolve(container.reindex_document)).execute(
-                document_id
-            )
+            unchanged = await (
+                await resolve(container.use_cases.reindex_document)
+            ).execute(document_id)
             assert unchanged.version == ready.current_version
 
-            await (await resolve(container.vectors)).recreate(dimension)
+            await (await resolve(container.repositories.vectors)).recreate(dimension)
             assert await rebuild_handler.handle() == len(chunks)
-            rebuilt = await (await resolve(container.qdrant)).retrieve(
+            rebuilt = await (await resolve(container.resources.qdrant)).retrieve(
                 settings.qdrant_collection,
                 ids=[str(chunk.id) for chunk in chunks],
                 with_payload=True,
@@ -176,9 +180,11 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
                 str(chunk.id) for chunk in chunks
             }
 
-            await (await resolve(container.delete_document)).execute(document_id)
+            await (await resolve(container.use_cases.delete_document)).execute(
+                document_id
+            )
             await wait_for_status(container, document_id, DocumentStatus.DELETED)
-            deleted = await (await resolve(container.qdrant)).retrieve(
+            deleted = await (await resolve(container.resources.qdrant)).retrieve(
                 settings.qdrant_collection,
                 ids=[str(chunk.id) for chunk in chunks],
                 with_vectors=False,
@@ -186,7 +192,9 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
             assert deleted == []
         finally:
             if document_id is not None:
-                sessions = (await resolve(container.database)).require_session_factory()
+                sessions = (
+                    await resolve(container.resources.database)
+                ).require_session_factory()
                 async with sessions.begin() as session:
                     await session.execute(
                         delete(ChunkRecord).where(

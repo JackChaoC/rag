@@ -6,7 +6,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from rag.container import Container, create_container
+from rag.containers import ApplicationContainer, create_container
+from rag.containers.resources import container_lifespan
 from rag.interfaces.http.exception_handlers import register_exception_handlers
 from rag.interfaces.http.routes import (
     api_router,
@@ -16,16 +17,15 @@ from rag.interfaces.http.routes import (
     search,
 )
 from rag.interfaces.mcp.server import create_mcp_server
-from rag.resources import container_lifespan
 
 
-def create_app(container: Container | None = None) -> FastAPI:
+def create_app(container: ApplicationContainer | None = None) -> FastAPI:
     container = container or create_container()
     container.wire(modules=[documents, search, health])
     mcp = create_mcp_server(
-        search_knowledge_provider=container.search_knowledge,
-        get_document_chunk_provider=container.get_document_chunk,
-        list_documents_provider=container.list_documents,
+        search_knowledge_provider=container.use_cases.search_knowledge,
+        get_document_chunk_provider=container.use_cases.get_document_chunk,
+        list_documents_provider=container.use_cases.list_documents,
     )
 
     @asynccontextmanager

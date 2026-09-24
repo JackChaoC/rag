@@ -5,8 +5,8 @@ from uuid import UUID
 from dependency_injector import providers
 from mcp.server import MCPServer
 
+from rag.containers.resources import resolve
 from rag.interfaces.mcp.schemas import ChunkResult, DocumentResult, SearchResult
-from rag.resources import resolve
 from rag.use_cases.get_document_chunk import GetDocumentChunk
 from rag.use_cases.list_documents import ListDocuments
 from rag.use_cases.search_knowledge import SearchKnowledge

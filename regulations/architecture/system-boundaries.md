@@ -3,7 +3,10 @@
 ## 依赖注入与资源生命周期
 
 - 使用 `dependency-injector` 的 `DeclarativeContainer` 统一声明 HTTP、MCP 和 Worker 的依赖图；每个运行进程创建自己的容器。
-- 配置由 Pydantic Settings 校验后载入 Configuration；Database、RabbitBroker、Qdrant 和 Ollama Embedder 使用 Resource，Repository、Use Case、Indexer、Handler 和 Dispatcher 使用 Factory。
+- 容器位于 `src/rag/containers/`：ApplicationContainer 只组装子容器；Resources 为最底层，Repositories 依赖 Resources，Core 依赖 Repositories 和 Resources；UseCases 与 Worker 是并列上层，互不依赖。子容器用 DependenciesContainer 显式声明下层依赖，共享底层 provider。
+- HTTP 依赖路径为 `ApplicationContainer.use_cases.*`，Worker 从 `container.worker.*` 解析 Handler 和 Dispatcher，连接从 `container.resources.*` 解析；资源初始化及生命周期函数统一位于 `containers/resources.py`。
+- 配置由 Pydantic Settings 校验后载入 Configuration；Database、RabbitBroker、Qdrant 和 Ollama Embedder 使用 Resource。无请求状态的 Repository、检索服务、Use Case、Indexer、Handler 和 Dispatcher 使用容器级 Singleton。Parser 及持有它的 Ingest/Reindex Use Case 保留 Factory，避免跨解析线程共享 MarkItDown；每次探测后关闭的健康检查 HTTP client 保留 Factory。
+- 单例消费者首次解析前完成依赖 override；已解析时须重置相应单例缓存再解析。容器生命周期退出后重置单例，避免重新启动时引用已关闭的旧资源。
 - HTTP 通过 `@inject` 与 `Depends(Provide[…])` 注入；MCP 通过显式传入的具体 provider 解析 Use Case，依赖参数不得出现在 Tool schema 中。
 - 业务类保持普通构造函数注入，不依赖 Container、Depends 或 Provide。Worker 不再维护独立 factory。
 - 数据库共享 session factory，不共享 AsyncSession；session 和事务边界继续由 Repository 管理。
