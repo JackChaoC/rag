@@ -1,29 +1,34 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from uuid import UUID
 
-from rag.core.document_processing.cleaner import clean_markdown
-from rag.core.document_processing.parser import DocumentParser
-from rag.infrastructure.database.entities.document import DocumentStatus
-from rag.infrastructure.database.repositories.document_repository import DocumentRepository
-from rag.infrastructure.messaging.models import IndexMessage, IndexOperation
-from rag.use_cases.common import DependencyError, DocumentSummary, NotFoundError
-from rag.use_cases.ingest_document import _make_chunks, _summary
+from rag.services.common.errors import DependencyError, NotFoundError
+from rag.services.document_processing.document_processing_service import (
+    DocumentProcessingService,
+)
+from rag.services.documents.document_service import DocumentService
+from rag.services.documents.types.document import DocumentStatus
+from rag.services.documents.types.document_summary import DocumentSummary
+from rag.services.indexing.index_task_service import IndexTaskService
+from rag.services.indexing.types.message import IndexMessage, IndexOperation
 
 
 class ReindexDocument:
     def __init__(
-        self, parser: DocumentParser, documents: DocumentRepository,
-        publish: Callable[[IndexMessage], Awaitable[None]],
+        self,
+        processing: DocumentProcessingService,
+        documents: DocumentService,
+        tasks: IndexTaskService,
     ) -> None:
-        self._parser = parser
+        self._processing = processing
         self._documents = documents
-        self._publish = publish
+        self._tasks = tasks
 
-    async def execute(self, document_id: UUID, data: bytes | None = None) -> DocumentSummary:
+    async def execute(
+        self, document_id: UUID, data: bytes | None = None
+    ) -> DocumentSummary:
         current = await self._documents.get(document_id)
         if current is None:
             raise NotFoundError("document not found")
@@ -31,27 +36,47 @@ class ReindexDocument:
             raise RuntimeError("deleted document cannot be reindexed")
         content = current.content
         if data is not None:
-            parsed = await self._parser.parse(data, current.source_type)
-            content = clean_markdown(parsed.markdown)
-            if not content:
-                raise ValueError("parsed document is empty")
+            content = await self._processing.parse_and_clean(data, current.source_type)
         digest = hashlib.sha256(content.encode()).hexdigest()
         if digest == current.content_hash:
             if current.status in {DocumentStatus.PENDING, DocumentStatus.FAILED}:
                 try:
-                    await self._publish(IndexMessage(current.id, IndexOperation.REINDEX, current.current_version))
+                    await self._tasks.publish(
+                        IndexMessage(
+                            current.id,
+                            IndexOperation.REINDEX,
+                            current.current_version,
+                        )
+                    )
                 except Exception as exc:
-                    await self._documents.set_status(current.id, DocumentStatus.FAILED, error=str(exc))
-                    raise DependencyError("index task could not be confirmed by RabbitMQ") from exc
-            return _summary(current)
+                    await self._documents.set_status(
+                        current.id, DocumentStatus.FAILED, error=str(exc)
+                    )
+                    raise DependencyError(
+                        "index task could not be confirmed by RabbitMQ"
+                    ) from exc
+            return self._documents.summarize(current)
         updated = replace(
-            current, content=content, content_hash=digest,
-            current_version=current.current_version + 1, status=DocumentStatus.PENDING,
+            current,
+            content=content,
+            content_hash=digest,
+            current_version=current.current_version + 1,
+            status=DocumentStatus.PENDING,
         )
-        await self._documents.add_version(updated, _make_chunks(updated))
+        await self._documents.add_version(
+            updated, self._processing.build_chunks(updated)
+        )
         try:
-            await self._publish(IndexMessage(updated.id, IndexOperation.REINDEX, updated.current_version))
+            await self._tasks.publish(
+                IndexMessage(
+                    updated.id, IndexOperation.REINDEX, updated.current_version
+                )
+            )
         except Exception as exc:
-            await self._documents.set_status(updated.id, DocumentStatus.FAILED, error=str(exc))
-            raise DependencyError("index task could not be confirmed by RabbitMQ") from exc
-        return _summary(updated)
+            await self._documents.set_status(
+                updated.id, DocumentStatus.FAILED, error=str(exc)
+            )
+            raise DependencyError(
+                "index task could not be confirmed by RabbitMQ"
+            ) from exc
+        return self._documents.summarize(updated)

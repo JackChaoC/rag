@@ -3,14 +3,13 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from rag.config import get_settings
-from rag.infrastructure.database.client import sqlalchemy_url
-from rag.infrastructure.database.models import Base
-
+from rag.resources.database.client import sqlalchemy_url
+from rag.resources.database.models import Base
 
 config = context.config
 if config.config_file_name:

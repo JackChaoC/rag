@@ -85,7 +85,7 @@ Langflow 展示了复杂系统的混合方案：FastAPI `Depends` 负责请求�
 
 调研时的 `container.py` 集中创建 Database、RabbitMQ、Qdrant、Embedder、Repository 和 Use Case，作为 Composition Root 的方向是合理的；问题是其 `start()` 动态添加 `ingest`、`search` 等属性，对象在启动前并不完整，存在调用顺序耦合。该历史实现已被分层子容器取代。
 
-当前 [`interfaces/http/app.py`](../src/rag/interfaces/http/app.py) 同时负责 App 生命周期、异常处理、全部 HTTP 路由、DTO 转换、Health Check、静态文件和 MCP 挂载；而 [`routes/documents.py`](../src/rag/interfaces/http/routes/documents.py) 与 [`routes/search.py`](../src/rag/interfaces/http/routes/search.py) 为空。路由又通过闭包直接访问完整 `container`，所以任何 Route 都能取得所有基础设施和 Use Case。这是当前“依赖传递很乱”的主要原因，不是 `Depends` 本身造成的。
+当时的 [`api/http/app.py`](../src/rag/api/http/app.py) 同时负责 App 生命周期、异常处理、全部 HTTP 路由、DTO 转换、Health Check、静态文件和 MCP 挂载；而 [`routes/documents.py`](../src/rag/api/http/routes/documents.py) 与 [`routes/search.py`](../src/rag/api/http/routes/search.py) 为空。路由又通过闭包直接访问完整 `container`，所以任何 Route 都能取得所有基础设施和 Use Case。这是当时“依赖传递很乱”的主要原因，不是 `Depends` 本身造成的。
 
 当前 [`tests/interfaces/test_contracts.py`](../tests/interfaces/test_contracts.py) 通过构造 `FakeContainer` 替换整个对象图，测试可运行，但替身必须模仿整个 Container 的形状。随着功能增加，它会越来越脆弱；替换路由实际需要的单个 Use Case 会更精确。
 

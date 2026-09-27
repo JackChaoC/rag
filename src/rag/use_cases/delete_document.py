@@ -1,35 +1,41 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from uuid import UUID
 
-from rag.infrastructure.database.entities.document import DocumentStatus
-from rag.infrastructure.database.repositories.document_repository import DocumentRepository
-from rag.infrastructure.messaging.models import IndexMessage, IndexOperation
-from rag.use_cases.common import DependencyError, DocumentSummary, NotFoundError
-from rag.use_cases.ingest_document import _summary
+from rag.services.common.errors import DependencyError, NotFoundError
+from rag.services.documents.document_service import DocumentService
+from rag.services.documents.types.document import DocumentStatus
+from rag.services.documents.types.document_summary import DocumentSummary
+from rag.services.indexing.index_task_service import IndexTaskService
+from rag.services.indexing.types.message import IndexMessage, IndexOperation
 
 
 class DeleteDocument:
-    def __init__(
-        self, documents: DocumentRepository, publish: Callable[[IndexMessage], Awaitable[None]],
-    ) -> None:
+    def __init__(self, documents: DocumentService, tasks: IndexTaskService) -> None:
         self._documents = documents
-        self._publish = publish
+        self._tasks = tasks
 
     async def execute(self, document_id: UUID) -> DocumentSummary:
         document = await self._documents.get(document_id)
         if document is None:
             raise NotFoundError("document not found")
         if document.status is DocumentStatus.DELETED:
-            return _summary(document)
+            return self._documents.summarize(document)
         await self._documents.set_status(document_id, DocumentStatus.DELETING)
         document.status = DocumentStatus.DELETING
         try:
-            await self._publish(IndexMessage(document.id, IndexOperation.DELETE, document.current_version))
+            await self._tasks.publish(
+                IndexMessage(
+                    document.id, IndexOperation.DELETE, document.current_version
+                )
+            )
         except Exception as exc:
             await self._documents.set_status(
-                document_id, DocumentStatus.DELETING, error=str(exc),
+                document_id,
+                DocumentStatus.DELETING,
+                error=str(exc),
             )
-            raise DependencyError("delete task could not be confirmed by RabbitMQ") from exc
-        return _summary(document)
+            raise DependencyError(
+                "delete task could not be confirmed by RabbitMQ"
+            ) from exc
+        return self._documents.summarize(document)

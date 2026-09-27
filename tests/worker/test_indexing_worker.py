@@ -5,13 +5,13 @@ import pytest
 from dependency_injector import providers
 
 from rag.containers import ApplicationContainer
-from rag.infrastructure.database.entities.chunk import Chunk
-from rag.infrastructure.database.entities.document import (
+from rag.services.documents.types.chunk import Chunk
+from rag.services.documents.types.document import (
     Document,
     DocumentStatus,
     SourceType,
 )
-from rag.infrastructure.messaging.models import IndexMessage, IndexOperation
+from rag.services.indexing.types.message import IndexMessage, IndexOperation
 from rag.worker.dispatcher import IndexingDispatcher
 
 
@@ -20,12 +20,10 @@ def worker_services(documents, chunks, embedder, vectors):
     for name, value in {
         "documents": documents,
         "chunks": chunks,
-        "embedder": embedder,
+        "embeddings": embedder,
         "vectors": vectors,
     }.items():
-        getattr(
-            container.resources if name == "embedder" else container.repositories, name
-        ).override(providers.Object(value))
+        getattr(container.services, name).override(providers.Object(value))
     return SimpleNamespace(
         dispatcher=container.worker.dispatcher(),
         failure_handler=container.worker.failure_handler(),

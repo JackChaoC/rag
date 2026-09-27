@@ -6,12 +6,11 @@ import pytest
 from qdrant_client import AsyncQdrantClient
 
 from rag.config import Settings
-from rag.infrastructure.database.client import Database
-from rag.infrastructure.embedding.ollama_embedder import OllamaEmbedder
-from rag.infrastructure.messaging.broker import RabbitBroker
-from rag.infrastructure.messaging.models import IndexMessage, IndexOperation
-from rag.infrastructure.vector_store.repositories.vector_repository import VectorRepository
-
+from rag.repositories.vector_repository import VectorRepository
+from rag.resources.database.client import Database
+from rag.resources.embedding.ollama_embedder import OllamaEmbedder
+from rag.resources.messaging.broker import RabbitBroker
+from rag.services.indexing.types.message import IndexMessage, IndexOperation
 
 pytestmark = pytest.mark.integration
 
@@ -24,7 +23,9 @@ async def test_postgres_rabbit_qdrant_and_real_ollama() -> None:
     database = Database(settings.database_url)
     broker = RabbitBroker(settings.rabbitmq_url, settings.rabbitmq_retry_delays)
     qdrant = AsyncQdrantClient(url=settings.qdrant_url)
-    embedder = OllamaEmbedder(settings.ollama_url, settings.embedding_model, num_gpu=settings.ollama_num_gpu)
+    embedder = OllamaEmbedder(
+        settings.ollama_url, settings.embedding_model, num_gpu=settings.ollama_num_gpu
+    )
     try:
         await asyncio.wait_for(database.connect(), 15)
         await asyncio.wait_for(broker.connect(), 15)
@@ -34,7 +35,9 @@ async def test_postgres_rabbit_qdrant_and_real_ollama() -> None:
         assert len(vector) > 0
         repository = VectorRepository(qdrant, settings.qdrant_collection)
         await asyncio.wait_for(repository.ensure_collection(len(vector)), 15)
-        info = await asyncio.wait_for(qdrant.get_collection(settings.qdrant_collection), 15)
+        info = await asyncio.wait_for(
+            qdrant.get_collection(settings.qdrant_collection), 15
+        )
         assert info.config.params.vectors.size == len(vector)
     finally:
         await embedder.aclose()

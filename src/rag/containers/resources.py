@@ -5,9 +5,9 @@ import httpx
 from dependency_injector import containers, providers
 from qdrant_client import AsyncQdrantClient
 
-from rag.infrastructure.database.client import Database
-from rag.infrastructure.embedding.ollama_embedder import OllamaEmbedder
-from rag.infrastructure.messaging.broker import RabbitBroker
+from rag.resources.database.client import Database
+from rag.resources.embedding.ollama_embedder import OllamaEmbedder
+from rag.resources.messaging.broker import RabbitBroker
 
 
 async def resolve[T](provider: providers.Provider[T]) -> T:

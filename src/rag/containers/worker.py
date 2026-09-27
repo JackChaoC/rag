@@ -1,7 +1,6 @@
 from dependency_injector import containers, providers
 
 from rag.worker.dispatcher import IndexingDispatcher
-from rag.worker.document_indexer import DocumentIndexer
 from rag.worker.handlers import (
     DocumentDeleteHandler,
     DocumentIngestHandler,
@@ -12,27 +11,17 @@ from rag.worker.handlers import (
 
 
 class Worker(containers.DeclarativeContainer):
-    resources = providers.DependenciesContainer()
-    repositories = providers.DependenciesContainer()
+    use_cases = providers.DependenciesContainer()
 
-    document_indexer = providers.Singleton(
-        DocumentIndexer,
-        documents=repositories.documents,
-        chunks=repositories.chunks,
-        embedder=resources.embedder,
-        vectors=repositories.vectors,
-    )
     document_ingest_handler = providers.Singleton(
-        DocumentIngestHandler, indexer=document_indexer
+        DocumentIngestHandler, index_document=use_cases.index_document
     )
     document_reindex_handler = providers.Singleton(
-        DocumentReindexHandler, indexer=document_indexer
+        DocumentReindexHandler, index_document=use_cases.index_document
     )
     document_delete_handler = providers.Singleton(
         DocumentDeleteHandler,
-        documents=repositories.documents,
-        chunks=repositories.chunks,
-        vectors=repositories.vectors,
+        delete_document_index=use_cases.delete_document_index,
     )
     dispatcher = providers.Singleton(
         IndexingDispatcher,
@@ -42,14 +31,9 @@ class Worker(containers.DeclarativeContainer):
     )
     failure_handler = providers.Singleton(
         FailureHandler,
-        documents=repositories.documents,
-        chunks=repositories.chunks,
-        vectors=repositories.vectors,
+        finalize_index_failure=use_cases.finalize_index_failure,
     )
     rebuild_handler = providers.Singleton(
         RebuildHandler,
-        documents=repositories.documents,
-        chunks=repositories.chunks,
-        embedder=resources.embedder,
-        vectors=repositories.vectors,
+        rebuild_index=use_cases.rebuild_index,
     )

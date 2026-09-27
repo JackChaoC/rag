@@ -11,17 +11,17 @@ from sqlalchemy.exc import IntegrityError
 from rag.config import Settings
 from rag.containers import ApplicationContainer, create_container
 from rag.containers.resources import container_lifespan, resolve
-from rag.infrastructure.database.client import Database
-from rag.infrastructure.database.entities.chunk import Chunk
-from rag.infrastructure.database.entities.document import (
+from rag.repositories.chunk_repository import ChunkRepository
+from rag.repositories.document_repository import (
+    DocumentRepository,
+)
+from rag.resources.database.client import Database
+from rag.resources.database.models import ChunkRecord, DocumentRecord
+from rag.services.documents.types.chunk import Chunk
+from rag.services.documents.types.document import (
     Document,
     DocumentStatus,
     SourceType,
-)
-from rag.infrastructure.database.models import ChunkRecord, DocumentRecord
-from rag.infrastructure.database.repositories.chunk_repository import ChunkRepository
-from rag.infrastructure.database.repositories.document_repository import (
-    DocumentRepository,
 )
 
 pytestmark = pytest.mark.integration

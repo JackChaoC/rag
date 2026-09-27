@@ -1,4 +1,4 @@
-from rag.infrastructure.messaging.models import IndexMessage, IndexOperation
+from rag.services.indexing.types.message import IndexMessage, IndexOperation
 from rag.worker.handlers.document_delete_handler import DocumentDeleteHandler
 from rag.worker.handlers.document_ingest_handler import DocumentIngestHandler
 from rag.worker.handlers.document_reindex_handler import DocumentReindexHandler

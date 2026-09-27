@@ -1,5 +1,5 @@
-from rag.core.retrieval.models import SearchResult
-from rag.core.retrieval.vector_search import VectorSearch
+from rag.services.retrieval.types.search_result import SearchResult
+from rag.services.retrieval.vector_search import VectorSearch
 
 
 class SearchKnowledge:

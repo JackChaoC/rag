@@ -1,11 +1,14 @@
-from dataclasses import replace
 from uuid import uuid4
 
 import pytest
 
-from rag.core.document_processing.parser import DocumentParser
-from rag.infrastructure.database.entities.document import Document, DocumentStatus, SourceType
-from rag.use_cases.common import DependencyError
+from rag.services.common.errors import DependencyError
+from rag.services.document_processing.document_processing_service import (
+    DocumentProcessingService,
+)
+from rag.services.document_processing.parser import DocumentParser
+from rag.services.documents.document_service import DocumentService
+from rag.services.documents.types.document import Document, DocumentStatus, SourceType
 from rag.use_cases.delete_document import DeleteDocument
 from rag.use_cases.ingest_document import IngestDocument
 from rag.use_cases.reindex_document import ReindexDocument
@@ -18,10 +21,16 @@ class Documents:
         self.status_changes = []
 
     async def get(self, document_id):
-        return self.document if self.document and self.document.id == document_id else None
+        return (
+            self.document if self.document and self.document.id == document_id else None
+        )
 
     async def get_by_source_uri(self, source_uri):
-        return self.document if self.document and self.document.source_uri == source_uri else None
+        return (
+            self.document
+            if self.document and self.document.source_uri == source_uri
+            else None
+        )
 
     async def create_with_chunks(self, document, chunks):
         self.document = document
@@ -38,13 +47,29 @@ class Documents:
         return True
 
 
+class Tasks:
+    def __init__(self, publish) -> None:
+        self._publish = publish
+
+    async def publish(self, message) -> None:
+        await self._publish(message)
+
+
+def document_service(documents: Documents) -> DocumentService:
+    return DocumentService(documents)
+
+
 def document(status=DocumentStatus.READY) -> Document:
     import hashlib
 
     content = "# Stable\n\nContent\n"
     return Document(
-        uuid4(), "stable.md", SourceType.MARKDOWN, content,
-        hashlib.sha256(content.encode()).hexdigest(), status=status,
+        uuid4(),
+        "stable.md",
+        SourceType.MARKDOWN,
+        content,
+        hashlib.sha256(content.encode()).hexdigest(),
+        status=status,
     )
 
 
@@ -57,7 +82,11 @@ async def test_reindex_without_content_change_keeps_version() -> None:
     async def publish(message):
         published.append(message)
 
-    result = await ReindexDocument(None, documents, publish).execute(current.id)
+    result = await ReindexDocument(
+        DocumentProcessingService(DocumentParser()),
+        document_service(documents),
+        Tasks(publish),
+    ).execute(current.id)
 
     assert result.version == 1
     assert documents.added_versions == []
@@ -73,7 +102,11 @@ async def test_pending_unchanged_reindex_republishes_same_version() -> None:
     async def publish(message):
         published.append(message)
 
-    result = await ReindexDocument(None, documents, publish).execute(current.id)
+    result = await ReindexDocument(
+        DocumentProcessingService(DocumentParser()),
+        document_service(documents),
+        Tasks(publish),
+    ).execute(current.id)
 
     assert result.version == 1
     assert published[0].version == 1
@@ -88,8 +121,14 @@ async def test_ingest_confirm_failure_becomes_dependency_error() -> None:
         raise OSError("confirm failed")
 
     with pytest.raises(DependencyError):
-        await IngestDocument(DocumentParser(), documents, fail).execute(
-            b"# New", "new.md", SourceType.MARKDOWN,
+        await IngestDocument(
+            DocumentProcessingService(DocumentParser()),
+            document_service(documents),
+            Tasks(fail),
+        ).execute(
+            b"# New",
+            "new.md",
+            SourceType.MARKDOWN,
         )
 
     assert documents.document.status is DocumentStatus.FAILED
@@ -105,7 +144,9 @@ async def test_delete_confirm_failure_keeps_retriable_deleting_state() -> None:
         raise OSError("confirm failed")
 
     with pytest.raises(DependencyError):
-        await DeleteDocument(documents, fail).execute(current.id)
+        await DeleteDocument(document_service(documents), Tasks(fail)).execute(
+            current.id
+        )
 
     assert current.status is DocumentStatus.DELETING
     assert current.last_error == "confirm failed"

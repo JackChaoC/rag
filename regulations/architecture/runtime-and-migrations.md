@@ -8,7 +8,7 @@
 > 实现优先级：`P0`
 
 - 项目使用 Python 3.13 和 `uv` 管理 Python 依赖及命令。Python 3.14 不是当前支持的运行时，除非 MarkItDown 及其 Magika/ONNX Runtime 依赖链在 Windows 上经过真实 PDF 解析回归验证。
-- HTTP 使用 FastAPI 与 Pydantic；PostgreSQL 运行时访问使用 SQLAlchemy 2.0 Async ORM，Psycopg 3 作为异步 PostgreSQL Driver。Repository 对上层隐藏 `AsyncSession`、SQLAlchemy 查询和事务边界，不得将 ORM Model 泄漏到 Core 或接口层。
+- HTTP 使用 FastAPI 与 Pydantic；PostgreSQL 运行时访问使用 SQLAlchemy 2.0 Async ORM，Psycopg 3 作为异步 PostgreSQL Driver。Repository 对上层隐藏 `AsyncSession`、SQLAlchemy 查询和事务边界，不得将 ORM Model 泄漏到 Services 或 API 层。
 - RabbitMQ 客户端使用 `aio-pika`；Qdrant 使用官方 `qdrant-client`；Ollama Embedding 使用 `httpx` 调用本地 HTTP API。
 - 文档解析使用 `markitdown[pdf]`，第一版必须启用 `markdown`、`text` 与 `pdf`；其他已声明 `source_type` 在有对应依赖和测试前必须拒绝并返回明确错误。
 - 应用配置通过环境变量加载，并至少包含 PostgreSQL DSN、RabbitMQ URL、Qdrant URL、Ollama URL、Embedding 模型、搜索候选上限、RabbitMQ Prefetch 与重试延迟。不得在源码中保存凭据。
