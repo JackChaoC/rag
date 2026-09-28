@@ -218,10 +218,7 @@ rag/
 │   │   │   └── embedder.py
 │   │   └── retrieval/
 │   │       ├── models.py
-│   │       ├── vector_search.py
-│   │       ├── keyword_search.py
-│   │       ├── fusion.py
-│   │       └── reranker.py
+│   │       └── vector_search.py
 │   ├── infrastructure/
 │   │   ├── database/
 │   │   │   ├── client.py
@@ -233,7 +230,6 @@ rag/
 │   │   │       ├── document_repository.py
 │   │   │       └── chunk_repository.py
 │   │   ├── vector_store/
-│   │   │   ├── client.py
 │   │   │   ├── entities/
 │   │   │   │   ├── vector_record.py
 │   │   │   │   └── search_hit.py
@@ -256,11 +252,7 @@ rag/
 │       │       ├── documents.py
 │       │       └── search.py
 │       └── mcp/
-│           ├── server.py
-│           └── tools/
-│               ├── search_knowledge.py
-│               ├── get_document_chunk.py
-│               └── list_documents.py
+│           └── server.py
 └── tests/
     ├── core/
     ├── infrastructure/

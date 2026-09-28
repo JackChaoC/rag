@@ -25,7 +25,7 @@ class VectorSearch:
         if not 1 <= top_k <= 10:
             raise ValueError("top_k must be between 1 and 10")
         vector = (await self._embedder.embed([query]))[0]
-        page_size = min(max(top_k * 2, 10), self._max_candidates)
+        page_size = max(top_k * 2, 10)
         offset = 0
         output: list[SearchResult] = []
         seen: set[object] = set()
