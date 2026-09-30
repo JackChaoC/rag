@@ -12,7 +12,6 @@ dependencies = [
     "alembic>=1.16,<2",
     "fastapi>=0.119.0",
     "httpx>=0.28.1",
-    "markitdown[pdf]>=0.1.4",
     "mcp>=1.18.0",
     "pydantic-settings>=2.11.0",
     "python-multipart>=0.0.20",
@@ -21,6 +20,10 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0,<3",
     "uvicorn>=0.37.0",
     "dependency-injector>=4.49.1,<5",
+    "llama-index-core==0.14.25",
+    "llama-index-readers-file==0.7.0",
+    "llama-index-embeddings-ollama==0.10.0",
+    "llama-index-vector-stores-qdrant==0.10.3",
 ]
 
 [dependency-groups]

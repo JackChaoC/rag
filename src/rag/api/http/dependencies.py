@@ -4,33 +4,45 @@ from dependency_injector.wiring import Provide
 from fastapi import Depends
 
 from rag.containers import ApplicationContainer
-from rag.use_cases.check_health import CheckHealth
-from rag.use_cases.delete_document import DeleteDocument
-from rag.use_cases.get_document_chunk import GetDocumentChunk
-from rag.use_cases.ingest_document import IngestDocument
-from rag.use_cases.list_documents import ListDocuments
-from rag.use_cases.reindex_document import ReindexDocument
-from rag.use_cases.search_knowledge import SearchKnowledge
+from rag.use_cases.check_health_use_case import CheckHealthUseCase
+from rag.use_cases.delete_document_use_case import DeleteDocumentUseCase
+from rag.use_cases.get_chunk_detail_use_case import GetChunkDetailUseCase
+from rag.use_cases.list_document_chunks_use_case import ListDocumentChunksUseCase
+from rag.use_cases.list_documents_use_case import ListDocumentsUseCase
+from rag.use_cases.query_knowledge_use_case import QueryKnowledgeUseCase
+from rag.use_cases.reindex_document_use_case import ReindexDocumentUseCase
+from rag.use_cases.upload_file_use_case import UploadFileUseCase
+
+ListDocumentChunksDep = Annotated[
+    ListDocumentChunksUseCase,
+    Depends(Provide[ApplicationContainer.use_cases.listDocumentChunksUseCase]),
+]
 
 IngestDocumentDep = Annotated[
-    IngestDocument, Depends(Provide[ApplicationContainer.use_cases.ingest_document])
+    UploadFileUseCase,
+    Depends(Provide[ApplicationContainer.use_cases.uploadFileUseCase]),
 ]
 ReindexDocumentDep = Annotated[
-    ReindexDocument, Depends(Provide[ApplicationContainer.use_cases.reindex_document])
+    ReindexDocumentUseCase,
+    Depends(Provide[ApplicationContainer.use_cases.reindexDocumentUseCase]),
 ]
 DeleteDocumentDep = Annotated[
-    DeleteDocument, Depends(Provide[ApplicationContainer.use_cases.delete_document])
+    DeleteDocumentUseCase,
+    Depends(Provide[ApplicationContainer.use_cases.deleteDocumentUseCase]),
 ]
 ListDocumentsDep = Annotated[
-    ListDocuments, Depends(Provide[ApplicationContainer.use_cases.list_documents])
+    ListDocumentsUseCase,
+    Depends(Provide[ApplicationContainer.use_cases.listDocumentsUseCase]),
 ]
 GetDocumentChunkDep = Annotated[
-    GetDocumentChunk,
-    Depends(Provide[ApplicationContainer.use_cases.get_document_chunk]),
+    GetChunkDetailUseCase,
+    Depends(Provide[ApplicationContainer.use_cases.getChunkDetailUseCase]),
 ]
 SearchKnowledgeDep = Annotated[
-    SearchKnowledge, Depends(Provide[ApplicationContainer.use_cases.search_knowledge])
+    QueryKnowledgeUseCase,
+    Depends(Provide[ApplicationContainer.use_cases.queryKnowledgeUseCase]),
 ]
 CheckHealthDep = Annotated[
-    CheckHealth, Depends(Provide[ApplicationContainer.use_cases.check_health])
+    CheckHealthUseCase,
+    Depends(Provide[ApplicationContainer.use_cases.checkHealthUseCase]),
 ]

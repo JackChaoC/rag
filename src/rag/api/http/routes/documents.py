@@ -9,10 +9,12 @@ from rag.api.http.dependencies import (
     DeleteDocumentDep,
     GetDocumentChunkDep,
     IngestDocumentDep,
+    ListDocumentChunksDep,
     ListDocumentsDep,
     ReindexDocumentDep,
 )
 from rag.api.http.schemas import ChunkResponse, DocumentResponse, ErrorResponse
+from rag.services.common.errors import NotFoundError
 from rag.services.documents.types.document import SourceType
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -79,8 +81,19 @@ async def get_chunk(
     chunk_id: UUID,
     use_case: GetDocumentChunkDep,
 ) -> ChunkResponse:
-    result = await use_case.execute(document_id, chunk_id)
+    result = await use_case.execute(chunk_id)
+    if result.document_id != document_id:
+        raise NotFoundError("chunk not found in document")
     return ChunkResponse.model_validate(result, from_attributes=True)
+
+
+@router.get("/{document_id}/chunks", response_model=list[ChunkResponse])
+@inject
+async def list_chunks(document_id: UUID, use_case: ListDocumentChunksDep):
+    return [
+        ChunkResponse.model_validate(item, from_attributes=True)
+        for item in await use_case.execute(document_id)
+    ]
 
 
 def _metadata(value: str) -> dict:

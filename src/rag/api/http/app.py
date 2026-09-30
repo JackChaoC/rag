@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from rag.api.http.exception_handlers import register_exception_handlers
 from rag.api.http.routes import (
     api_router,
+    chunks,
     documents,
     health,
     root_router,
@@ -21,11 +22,11 @@ from rag.containers.resources import container_lifespan
 
 def create_app(container: ApplicationContainer | None = None) -> FastAPI:
     container = container or create_container()
-    container.wire(modules=[documents, search, health])
+    container.wire(modules=[documents, chunks, search, health])
     mcp = create_mcp_server(
-        search_knowledge_provider=container.use_cases.search_knowledge,
-        get_document_chunk_provider=container.use_cases.get_document_chunk,
-        list_documents_provider=container.use_cases.list_documents,
+        search_knowledge_provider=container.use_cases.queryKnowledgeUseCase,
+        get_document_chunk_provider=container.use_cases.getChunkDetailUseCase,
+        list_documents_provider=container.use_cases.listDocumentsUseCase,
     )
 
     @asynccontextmanager

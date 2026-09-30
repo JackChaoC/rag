@@ -8,18 +8,19 @@ from aio_pika import DeliveryMode, ExchangeType, IncomingMessage, Message
 
 from rag.services.indexing.types.message import IndexMessage
 
-MAIN_EXCHANGE = "rag.indexing"
-MAIN_QUEUE = "rag.indexing.jobs"
-RETRY_EXCHANGE = "rag.indexing.retry"
-DEAD_EXCHANGE = "rag.indexing.dlx"
-DEAD_QUEUE = "rag.indexing.dead"
+MAIN_EXCHANGE = "rag.llama-index.indexing"
 
 
-class RabbitBroker:
+class RabbitBrokerResource:
     def __init__(
-        self, url: str, retry_delays: tuple[int, int, int], prefetch: int = 4
+        self,
+        url: str,
+        retry_delays: tuple[int, int, int],
+        prefetch: int = 4,
+        namespace: str = MAIN_EXCHANGE,
     ) -> None:
         self._url = url
+        self.namespace = namespace
         self._retry_delays = retry_delays
         self._prefetch = prefetch
         self.connection: aio_pika.abc.AbstractRobustConnection | None = None
@@ -42,32 +43,32 @@ class RabbitBroker:
     async def _declare_topology(self) -> None:
         assert self.channel is not None
         self.main_exchange = await self.channel.declare_exchange(
-            MAIN_EXCHANGE, ExchangeType.DIRECT, durable=True
+            self.namespace, ExchangeType.DIRECT, durable=True
         )
         self.retry_exchange = await self.channel.declare_exchange(
-            RETRY_EXCHANGE, ExchangeType.DIRECT, durable=True
+            f"{self.namespace}.retry", ExchangeType.DIRECT, durable=True
         )
         self.dead_exchange = await self.channel.declare_exchange(
-            DEAD_EXCHANGE, ExchangeType.DIRECT, durable=True
+            f"{self.namespace}.dlx", ExchangeType.DIRECT, durable=True
         )
         self.main_queue = await self.channel.declare_queue(
-            MAIN_QUEUE,
+            f"{self.namespace}.jobs",
             durable=True,
-            arguments={"x-dead-letter-exchange": DEAD_EXCHANGE},
+            arguments={"x-dead-letter-exchange": f"{self.namespace}.dlx"},
         )
         for key in ("document.ingest", "document.reindex", "document.delete"):
             await self.main_queue.bind(self.main_exchange, key)
         for index in range(1, 4):
             await self.main_queue.bind(self.main_exchange, f"retry.{index}")
-        dead = await self.channel.declare_queue(DEAD_QUEUE, durable=True)
+        dead = await self.channel.declare_queue(f"{self.namespace}.dead", durable=True)
         await dead.bind(self.dead_exchange, "document.failed")
         for index, delay in enumerate(self._retry_delays, start=1):
             queue = await self.channel.declare_queue(
-                f"rag.indexing.retry.{index}",
+                f"{self.namespace}.retry.{index}",
                 durable=True,
                 arguments={
                     "x-message-ttl": delay * 1000,
-                    "x-dead-letter-exchange": MAIN_EXCHANGE,
+                    "x-dead-letter-exchange": self.namespace,
                 },
             )
             await queue.bind(self.retry_exchange, f"retry.{index}")

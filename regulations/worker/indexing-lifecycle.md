@@ -1,40 +1,27 @@
-# 索引生命周期与幂等
+# Worker 生命周期
 
-## 版本防护与操作顺序
+## 索引、更新、删除与失败
 
-> 变更批次：`26-09-19_0`
-> 变更来源：`improve-regulations`
-> 落地状态：`已实现`
-> 实现优先级：`P0`
-
-Worker 处理消息前必须读取 PostgreSQL 中的 Document 和目标版本 Chunk，不信任消息携带业务正文。消息版本落后于 `documents.current_version` 时视为过期任务：不得改变当前版本状态或向量；清理能够明确归属于过期版本的 Point 后 ACK。消息版本高于当前版本时属于状态不一致，必须失败并保留诊断信息。
-
-Ingest 与 Reindex 必须按以下顺序执行：
-
-1. 以条件更新把匹配版本的 Document 从可处理状态改为 `indexing`，防止并发 Worker 同时取得所有权。
-2. 查询目标版本全部 Chunk，并为每个 Chunk 生成 Embedding。
-3. 使用 `chunks.id` 作为 Qdrant Point ID 执行幂等 Upsert。
-4. 仅当目标版本全部 Point 写入成功后，在同一 PostgreSQL 事务中启用目标版本 Chunk、停用旧版本 Chunk，并把 Document 置为 `ready`、清空 `last_error`。
-5. 根据 PostgreSQL 中的旧 Chunk ID 物理删除旧 Qdrant Point；重复删除不存在的 Point 视为成功。
-6. 完成上述成功路径后 ACK。
-
-Delete 必须先把 Document 置为 `deleting`；Worker 根据该 Document 的全部 Chunk ID 幂等删除 Qdrant Point，随后在 PostgreSQL 事务中停用 Chunk、把 Document 置为 `deleted` 并清空 `last_error`，最后 ACK。已处于 `deleted` 且 Point 已不存在时重复 Delete 直接视为成功。
-
-如果 Qdrant Upsert 成功但 PostgreSQL 状态切换失败，消息必须重试；相同 Chunk ID 的重复 Upsert 覆盖原 Point。目标版本最终失败时，Worker 必须尽力删除该版本所有 Point，再把 Document 置为 `failed` 并记录 `last_error`。不得将旧版本重新标记为新版本。
-
-同一 Document 进入 `deleting` 后不得接受新的 Ingest 或 Reindex，除非后续规范显式定义恢复流程。
-
-验收条件：对每种 operation 重复投递至少两次，数据库版本、有效 Chunk 数量和 Qdrant Point 数量不增加；乱序旧版本不会覆盖新版本；任一步骤注入失败后重试能够收敛到唯一成功或失败终态。
-
-## Routing Key 分派与 Handler 边界
-
-> 变更批次：`26-09-23_0`
+> 变更批次：`26-09-30_0`
 > 变更来源：`implement-regulations`
 > 落地状态：`已实现`
 
-- RabbitMQ 消费入口必须向 Worker 传递业务 Routing Key；Retry Queue 回流时使用消息 Header 中的 `x-original-routing-key` 恢复原始业务 Routing Key，不把 `retry.1`、`retry.2` 或 `retry.3` 当作业务操作。
-- `IndexingDispatcher` 只负责验证 Routing Key 与消息体 `operation` 一致，并使用结构模式匹配分派消息；不得在 Dispatcher 中实现索引、删除或失败补偿逻辑。
-- 每个业务 Routing Key 必须一一对应同名语义的独立 Handler：`document.ingest` 对应 `DocumentIngestHandler`、`document.reindex` 对应 `DocumentReindexHandler`、`document.delete` 对应 `DocumentDeleteHandler`。Handler 之间不得互相继承；Ingest 与 Reindex 当前相同的完整索引功能通过 `IndexDocument` Use Case 复用。
-- Broker 继续拥有 ACK、有限重试和死信投递；Handler 只报告成功或抛出失败，不直接 ACK、NACK 或发布 Retry 消息。
+- API/Worker 通过 PG transaction advisory lock 对同一 document_id 串行化；上传按来源标识另加锁防止重复创建。
+- Worker 先读当前 Document：旧版本消息直接成功返回，不删除新 Nodes；超前版本失败；deleting/deleted 不再索引。
+- Ingest/Reindex：置 indexing → 删除该文档旧 Nodes → 从 file_path 读取 → splitter → Embedding → Qdrant 写入 → ready，成功清空 last_error，最后 Broker ACK。
+- 重复消息使用相同 Node ID，重试会清理该文档残留并重新生成。Qdrant 成功但状态更新失败也可重试收敛。
+- Reindex API 存下一版本文件并更新 PG 后删除旧文件/Nodes，再发布新版本；无文件时读取当前文件仍创建下一版本，不承诺更新期间可搜索。
+- Delete API 置 deleting 并发布任务；Worker 删除该文档 Nodes 和当前文件，置 deleted。重复删除幂等。
+- 索引终态失败清理当前文档 Nodes 并记 failed/last_error；删除终态失败保持 deleting/last_error，禁止旧 ingest 消息复活文档，可重试 DELETE。
+- RebuildIndexUseCase 为 ready/failed 文档发布当前版本重建任务，返回排队文档数；不调用其他 UseCase，不新建版本。
 
-验收条件：自动化测试证明三个业务 Routing Key 分派到正确处理分支；未知 Routing Key 和 Routing Key/operation 不一致时明确失败；Retry Queue 回流能够恢复原始业务 Routing Key；既有重复投递、过期版本、部分失败和删除幂等测试继续通过。
+## Dispatcher 与 Handler
+
+> 变更批次：`26-09-30_0`
+> 变更来源：`implement-regulations`
+> 落地状态：`已实现`
+
+- worker.py 是消费入口；dispatcher.py 使用 match routing_key。
+- document.ingest / document.reindex / document.delete 分别对应独立 DocumentIngestHandler / DocumentReindexHandler / DocumentDeleteHandler；不相互继承。
+- Ingest/Reindex Handler 复用 IndexDocumentUseCase，而不是共用一个 handler。
+- Dispatcher 验证 routing_key 与 operation 一致；ACK、重试、死信仍归 Broker。

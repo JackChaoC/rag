@@ -1,249 +1,120 @@
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from dependency_injector import providers
 
-from rag.containers import ApplicationContainer
-from rag.services.documents.types.chunk import Chunk
-from rag.services.documents.types.document import (
-    Document,
-    DocumentStatus,
-    SourceType,
-)
+from rag.services.documents.types.document import DocumentStatus, SourceType
 from rag.services.indexing.types.message import IndexMessage, IndexOperation
 from rag.worker.dispatcher import IndexingDispatcher
 
 
-def worker_services(documents, chunks, embedder, vectors):
-    container = ApplicationContainer()
-    for name, value in {
-        "documents": documents,
-        "chunks": chunks,
-        "embeddings": embedder,
-        "vectors": vectors,
-    }.items():
-        getattr(container.services, name).override(providers.Object(value))
-    return SimpleNamespace(
-        dispatcher=container.worker.dispatcher(),
-        failure_handler=container.worker.failure_handler(),
-        rebuild_handler=container.worker.rebuild_handler(),
-    )
-
-
-class Documents:
-    def __init__(self, document):
-        self.document = document
-
-    async def get(self, document_id):
-        return self.document if document_id == self.document.id else None
-
-    async def list(self):
-        return [self.document]
-
-    async def set_status(self, document_id, status, *, error=None, expected=None):
-        if expected and self.document.status not in expected:
-            return False
-        self.document.status = status
-        self.document.last_error = error
-        return True
-
-    async def activate_version(self, document_id, version):
-        if version != self.document.current_version:
-            raise RuntimeError("version changed")
-        self.document.status = DocumentStatus.READY
-        self.document.last_error = None
-
-    async def mark_deleted(self, document_id):
-        self.document.status = DocumentStatus.DELETED
-        self.document.last_error = None
-
-
-class Chunks:
-    def __init__(self, chunks):
-        self.chunks = chunks
-
-    async def for_version(self, document_id, version):
-        return [
-            item
-            for item in self.chunks
-            if item.document_id == document_id and item.version == version
-        ]
-
-    async def all_ids(self, document_id, *, exclude_version=None):
-        return [
-            item.id
-            for item in self.chunks
-            if item.document_id == document_id
-            and (exclude_version is None or item.version != exclude_version)
-        ]
-
-
-class Embedder:
-    def __init__(self):
-        self.texts = []
-
-    async def embed(self, texts):
-        self.texts.extend(texts)
-        return [[1.0, 0.0] for _ in texts]
-
-
-class Vectors:
-    def __init__(self):
-        self.points = {}
-        self.dimension = None
-
-    async def ensure_collection(self, dimension):
-        self.dimension = dimension
-
-    async def upsert(self, records):
-        self.points.update({record.id: record.vector for record in records})
-
-    async def delete(self, ids):
-        for point_id in ids:
-            self.points.pop(point_id, None)
-
-
-class ActivateFailsOnce(Documents):
-    def __init__(self, document):
-        super().__init__(document)
-        self.failures = 1
-
-    async def activate_version(self, document_id, version):
-        if self.failures:
-            self.failures -= 1
-            raise RuntimeError("postgres switch failed")
-        await super().activate_version(document_id, version)
-
-
 class RecordingHandler:
-    def __init__(self) -> None:
+    def __init__(self):
         self.messages = []
 
-    async def handle(self, message) -> None:
+    async def handle(self, message):
         self.messages.append(message)
 
 
-def setup(status=DocumentStatus.PENDING):
-    doc = Document(
-        uuid4(), "doc.md", SourceType.MARKDOWN, "text", "hash", status=status
+async def setup(container):
+    result = await container.use_cases.uploadFileUseCase().execute(
+        b"# Guide\nintro\n## Topic\nbody", "doc.md", SourceType.MARKDOWN, "Guide"
     )
-    chunk = Chunk(uuid4(), doc.id, 1, 0, "text")
-    documents, chunks, vectors = Documents(doc), Chunks([chunk]), Vectors()
-    services = worker_services(documents, chunks, Embedder(), vectors)
-    return doc, chunk, services, vectors
+    return IndexMessage(result.document_id, IndexOperation.INGEST, 1)
 
 
-@pytest.mark.asyncio
-async def test_worker_embeds_document_title_heading_and_body() -> None:
-    doc = Document(
-        uuid4(),
-        "doc.md",
-        SourceType.MARKDOWN,
-        "text",
-        "hash",
-        title="Database Guide",
+async def test_duplicate_ingest_converges_and_stale_message_does_not_remove_new_nodes(
+    appContainer,
+):
+    message = await setup(appContainer)
+    dispatcher = appContainer.worker.dispatcher()
+    await dispatcher.dispatch("document.ingest", message)
+    before = await appContainer.services.chunkLookupService().listChunks(
+        message.document_id
     )
-    chunk = Chunk(
-        uuid4(),
-        doc.id,
-        1,
-        0,
-        "## Migration\nAlembic manages revisions.",
-        metadata={"heading": "Migration"},
+    await dispatcher.dispatch("document.ingest", message)
+    after = await appContainer.services.chunkLookupService().listChunks(
+        message.document_id
     )
-    embedder = Embedder()
-    services = worker_services(Documents(doc), Chunks([chunk]), embedder, Vectors())
-    message = IndexMessage(doc.id, IndexOperation.INGEST, 1)
-
-    await services.dispatcher.dispatch(message.operation.routing_key, message)
-
-    assert embedder.texts == [
-        "# Database Guide\n\n## Migration\n\nAlembic manages revisions."
-    ]
-
-
-@pytest.mark.asyncio
-async def test_duplicate_ingest_converges_to_one_point() -> None:
-    doc, chunk, services, vectors = setup()
-    message = IndexMessage(doc.id, IndexOperation.INGEST, 1)
-
-    await services.dispatcher.dispatch(message.operation.routing_key, message)
-    await services.dispatcher.dispatch(message.operation.routing_key, message)
-
-    assert doc.status is DocumentStatus.READY
-    assert vectors.points == {chunk.id: [1.0, 0.0]}
+    assert [n.chunk_id for n in before] == [n.chunk_id for n in after]
+    document = await appContainer.services.documentService().get(message.document_id)
+    document.current_version = 2
+    await dispatcher.dispatch("document.ingest", message)
+    assert (
+        await appContainer.services.chunkLookupService().listChunks(document.id)
+        == after
+    )
+    assert document.status is DocumentStatus.READY
 
 
-@pytest.mark.asyncio
-async def test_stale_message_only_removes_stale_version_points() -> None:
-    doc, stale_chunk, services, vectors = setup(DocumentStatus.READY)
-    doc.current_version = 2
-    vectors.points[stale_chunk.id] = [1.0, 0.0]
+async def test_qdrant_success_then_database_failure_converges_on_retry(appContainer):
+    message = await setup(appContainer)
+    service = appContainer.services.documentService()
+    original = service.set_status
+    fail = True
 
-    message = IndexMessage(doc.id, IndexOperation.REINDEX, 1)
-    await services.dispatcher.dispatch(message.operation.routing_key, message)
+    async def set_status(documentId, status, **kwargs):
+        nonlocal fail
+        if status is DocumentStatus.READY and fail:
+            fail = False
+            raise RuntimeError("db status failed")
+        return await original(documentId, status, **kwargs)
 
-    assert vectors.points == {}
-    assert doc.status is DocumentStatus.READY
-
-
-@pytest.mark.asyncio
-async def test_terminal_failure_cleans_target_points_and_records_error() -> None:
-    doc, chunk, services, vectors = setup(DocumentStatus.INDEXING)
-    vectors.points[chunk.id] = [1.0, 0.0]
-
-    await services.failure_handler.handle(
-        IndexMessage(doc.id, IndexOperation.INGEST, 1),
-        RuntimeError("ollama down"),
+    service.set_status = set_status
+    with pytest.raises(RuntimeError, match="db status failed"):
+        await appContainer.worker.dispatcher().dispatch("document.ingest", message)
+    await appContainer.worker.dispatcher().dispatch("document.ingest", message)
+    assert (await service.get(message.document_id)).status is DocumentStatus.READY
+    assert (
+        len(
+            await appContainer.services.chunkLookupService().listChunks(
+                message.document_id
+            )
+        )
+        == 2
     )
 
-    assert vectors.points == {}
-    assert doc.status is DocumentStatus.FAILED
-    assert doc.last_error == "ollama down"
+
+async def test_terminal_failure_cleans_nodes_and_records_error(appContainer):
+    message = await setup(appContainer)
+    await appContainer.worker.dispatcher().dispatch("document.ingest", message)
+    await appContainer.services.documentService().set_status(
+        message.document_id, DocumentStatus.INDEXING
+    )
+    await appContainer.worker.failureHandler().handle(
+        message, RuntimeError("ollama down")
+    )
+    document = await appContainer.services.documentService().get(message.document_id)
+    assert document.status is DocumentStatus.FAILED
+    assert document.last_error == "ollama down"
+    assert (
+        await appContainer.services.chunkLookupService().listChunks(document.id) == []
+    )
 
 
-@pytest.mark.asyncio
-async def test_qdrant_success_then_postgres_failure_converges_on_retry() -> None:
-    doc = Document(uuid4(), "doc.md", SourceType.MARKDOWN, "text", "hash")
-    chunk = Chunk(uuid4(), doc.id, 1, 0, "text")
-    documents = ActivateFailsOnce(doc)
-    vectors = Vectors()
-    services = worker_services(documents, Chunks([chunk]), Embedder(), vectors)
-    message = IndexMessage(doc.id, IndexOperation.INGEST, 1)
-
-    with pytest.raises(RuntimeError, match="postgres switch failed"):
-        await services.dispatcher.dispatch(message.operation.routing_key, message)
-    assert doc.status is DocumentStatus.FAILED
-    assert vectors.points == {chunk.id: [1.0, 0.0]}
-
-    await services.dispatcher.dispatch(message.operation.routing_key, message)
-
-    assert doc.status is DocumentStatus.READY
-    assert doc.last_error is None
-    assert vectors.points == {chunk.id: [1.0, 0.0]}
+async def test_duplicate_delete_removes_nodes_and_file(appContainer):
+    message = await setup(appContainer)
+    await appContainer.worker.dispatcher().dispatch("document.ingest", message)
+    document = await appContainer.services.documentService().get(message.document_id)
+    path = appContainer.services.fileService().path(document.file_path)
+    await appContainer.use_cases.deleteDocumentUseCase().execute(document.id)
+    message = IndexMessage(document.id, IndexOperation.DELETE, 1)
+    for _ in range(2):
+        await appContainer.worker.dispatcher().dispatch("document.delete", message)
+    assert document.status is DocumentStatus.DELETED
+    assert not path.exists()
+    assert (
+        await appContainer.services.chunkLookupService().listChunks(document.id) == []
+    )
 
 
-@pytest.mark.asyncio
-async def test_duplicate_delete_is_idempotent() -> None:
-    doc, chunk, services, vectors = setup(DocumentStatus.DELETING)
-    vectors.points[chunk.id] = [1.0, 0.0]
-    message = IndexMessage(doc.id, IndexOperation.DELETE, 1)
-
-    await services.dispatcher.dispatch(message.operation.routing_key, message)
-    await services.dispatcher.dispatch(message.operation.routing_key, message)
-
-    assert vectors.points == {}
-    assert doc.status is DocumentStatus.DELETED
-
-
-@pytest.mark.asyncio
-async def test_dispatcher_rejects_unknown_routing_key() -> None:
-    doc, _, services, _ = setup()
-    message = IndexMessage(doc.id, IndexOperation.INGEST, 1)
-
-    with pytest.raises(ValueError, match="unsupported indexing routing key"):
-        await services.dispatcher.dispatch("document.unknown", message)
+async def test_dispatcher_rejects_unknown_and_mismatched_routing_keys():
+    handler = RecordingHandler()
+    dispatcher = IndexingDispatcher(handler, handler, handler)
+    message = IndexMessage(uuid4(), IndexOperation.REINDEX, 1)
+    with pytest.raises(ValueError, match="unsupported"):
+        await dispatcher.dispatch("document.unknown", message)
+    with pytest.raises(ValueError, match="does not match"):
+        await dispatcher.dispatch("document.ingest", message)
 
 
 @pytest.mark.asyncio
@@ -266,10 +137,14 @@ async def test_dispatcher_maps_each_routing_key_to_its_own_handler() -> None:
     assert delete.messages == [delete_message]
 
 
-@pytest.mark.asyncio
-async def test_dispatcher_rejects_operation_routing_key_mismatch() -> None:
-    doc, _, services, _ = setup()
-    message = IndexMessage(doc.id, IndexOperation.REINDEX, 1)
-
-    with pytest.raises(ValueError, match="does not match"):
-        await services.dispatcher.dispatch("document.ingest", message)
+async def test_failed_delete_is_not_resurrected_by_delayed_ingest(appContainer):
+    message = await setup(appContainer)
+    await appContainer.use_cases.deleteDocumentUseCase().execute(message.document_id)
+    await appContainer.worker.failureHandler().handle(
+        IndexMessage(message.document_id, IndexOperation.DELETE, 1),
+        RuntimeError("delete failed"),
+    )
+    await appContainer.worker.dispatcher().dispatch("document.ingest", message)
+    document = await appContainer.services.documentService().get(message.document_id)
+    assert document.status is DocumentStatus.DELETING
+    assert document.last_error == "delete failed"

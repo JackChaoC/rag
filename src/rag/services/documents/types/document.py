@@ -31,7 +31,7 @@ class Document:
     id: UUID
     source_uri: str
     source_type: SourceType
-    content: str
+    file_path: str
     content_hash: str
     current_version: int = 1
     status: DocumentStatus = DocumentStatus.PENDING

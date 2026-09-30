@@ -9,6 +9,8 @@ wheels/
 # Virtual environments
 .venv
 .env
+.env.llama-index
+statics/
 .pytest_cache/
 .ruff_cache/
 *.log

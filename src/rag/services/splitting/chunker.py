@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from rag.services.document_processing.types.chunk import ChunkDraft, Piece, Section
+from rag.services.splitting.types.chunk import ChunkDraft, Piece, Section
 
 _H2 = re.compile(r"^##(?:[ \t]+(?P<title>.*?)[ \t]*|[ \t]*)$")
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")

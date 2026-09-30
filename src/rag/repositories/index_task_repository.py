@@ -1,10 +1,10 @@
-from rag.resources.messaging.broker import RabbitBroker
+from rag.resources.messaging.broker import RabbitBrokerResource
 from rag.services.indexing.types.message import IndexMessage
 
 
 class IndexTaskRepository:
-    def __init__(self, broker: RabbitBroker) -> None:
-        self._broker = broker
+    def __init__(self, brokerResource: RabbitBrokerResource) -> None:
+        self.brokerResource = brokerResource
 
     async def publish(self, message: IndexMessage) -> None:
-        await self._broker.publish(message)
+        await self.brokerResource.publish(message)

@@ -1,68 +1,82 @@
 from dependency_injector import containers, providers
 
-from rag.use_cases.check_health import CheckHealth
-from rag.use_cases.delete_document import DeleteDocument
-from rag.use_cases.delete_document_index import DeleteDocumentIndex
-from rag.use_cases.finalize_index_failure import FinalizeIndexFailure
-from rag.use_cases.get_document_chunk import GetDocumentChunk
-from rag.use_cases.index_document import IndexDocument
-from rag.use_cases.ingest_document import IngestDocument
-from rag.use_cases.list_documents import ListDocuments
-from rag.use_cases.rebuild_index import RebuildIndex
-from rag.use_cases.reindex_document import ReindexDocument
-from rag.use_cases.search_knowledge import SearchKnowledge
+from rag.use_cases.check_health_use_case import CheckHealthUseCase
+from rag.use_cases.delete_document_index_use_case import DeleteDocumentIndexUseCase
+from rag.use_cases.delete_document_use_case import DeleteDocumentUseCase
+from rag.use_cases.finalize_index_failure_use_case import FinalizeIndexFailureUseCase
+from rag.use_cases.get_chunk_detail_use_case import GetChunkDetailUseCase
+from rag.use_cases.index_document_use_case import IndexDocumentUseCase
+from rag.use_cases.list_document_chunks_use_case import ListDocumentChunksUseCase
+from rag.use_cases.list_documents_use_case import ListDocumentsUseCase
+from rag.use_cases.query_knowledge_use_case import QueryKnowledgeUseCase
+from rag.use_cases.rebuild_index_use_case import RebuildIndexUseCase
+from rag.use_cases.reindex_document_use_case import ReindexDocumentUseCase
+from rag.use_cases.upload_file_use_case import UploadFileUseCase
 
 
 class UseCases(containers.DeclarativeContainer):
     services = providers.DependenciesContainer()
 
-    # Parser owners must remain factories to avoid retaining a shared parser.
-    ingest_document = providers.Factory(
-        IngestDocument,
-        processing=services.document_processing,
-        documents=services.documents,
-        tasks=services.index_tasks,
+    uploadFileUseCase = providers.Factory(
+        UploadFileUseCase,
+        fileService=services.fileService,
+        documentService=services.documentService,
+        indexTaskService=services.indexTaskService,
     )
-    reindex_document = providers.Factory(
-        ReindexDocument,
-        processing=services.document_processing,
-        documents=services.documents,
-        tasks=services.index_tasks,
+    reindexDocumentUseCase = providers.Factory(
+        ReindexDocumentUseCase,
+        fileService=services.fileService,
+        documentService=services.documentService,
+        vectorService=services.vectorService,
+        indexTaskService=services.indexTaskService,
     )
-    delete_document = providers.Singleton(
-        DeleteDocument,
-        documents=services.documents,
-        tasks=services.index_tasks,
+    deleteDocumentUseCase = providers.Factory(
+        DeleteDocumentUseCase,
+        documentService=services.documentService,
+        indexTaskService=services.indexTaskService,
     )
-    list_documents = providers.Singleton(ListDocuments, documents=services.documents)
-    get_document_chunk = providers.Singleton(GetDocumentChunk, chunks=services.chunks)
-    search_knowledge = providers.Singleton(
-        SearchKnowledge, search=services.vector_search
+    listDocumentsUseCase = providers.Factory(
+        ListDocumentsUseCase,
+        documentService=services.documentService,
     )
-    check_health = providers.Singleton(CheckHealth, health=services.health)
-    index_document = providers.Singleton(
-        IndexDocument,
-        documents=services.documents,
-        chunks=services.chunks,
-        embedder=services.embeddings,
-        vectors=services.vectors,
+    listDocumentChunksUseCase = providers.Factory(
+        ListDocumentChunksUseCase,
+        chunkLookupService=services.chunkLookupService,
     )
-    delete_document_index = providers.Singleton(
-        DeleteDocumentIndex,
-        documents=services.documents,
-        chunks=services.chunks,
-        vectors=services.vectors,
+    getChunkDetailUseCase = providers.Factory(
+        GetChunkDetailUseCase,
+        chunkLookupService=services.chunkLookupService,
     )
-    finalize_index_failure = providers.Singleton(
-        FinalizeIndexFailure,
-        documents=services.documents,
-        chunks=services.chunks,
-        vectors=services.vectors,
+    queryKnowledgeUseCase = providers.Factory(
+        QueryKnowledgeUseCase,
+        vectorQueryService=services.vectorQueryService,
     )
-    rebuild_index = providers.Singleton(
-        RebuildIndex,
-        documents=services.documents,
-        chunks=services.chunks,
-        embedder=services.embeddings,
-        vectors=services.vectors,
+    checkHealthUseCase = providers.Factory(
+        CheckHealthUseCase,
+        healthService=services.healthService,
+    )
+    indexDocumentUseCase = providers.Factory(
+        IndexDocumentUseCase,
+        documentService=services.documentService,
+        fileService=services.fileService,
+        readerService=services.readerService,
+        splitterService=services.splitterService,
+        embeddingService=services.embeddingService,
+        vectorService=services.vectorService,
+    )
+    deleteDocumentIndexUseCase = providers.Factory(
+        DeleteDocumentIndexUseCase,
+        documentService=services.documentService,
+        fileService=services.fileService,
+        vectorService=services.vectorService,
+    )
+    finalizeIndexFailureUseCase = providers.Factory(
+        FinalizeIndexFailureUseCase,
+        documentService=services.documentService,
+        vectorService=services.vectorService,
+    )
+    rebuildIndexUseCase = providers.Factory(
+        RebuildIndexUseCase,
+        documentService=services.documentService,
+        indexTaskService=services.indexTaskService,
     )

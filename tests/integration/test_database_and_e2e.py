@@ -5,202 +5,171 @@ from uuid import uuid4
 
 import pytest
 from reportlab.pdfgen import canvas
-from sqlalchemy import delete
+from sqlalchemy import delete, inspect
 from sqlalchemy.exc import IntegrityError
 
 from rag.config import Settings
-from rag.containers import ApplicationContainer, create_container
+from rag.containers import create_container
 from rag.containers.resources import container_lifespan, resolve
-from rag.repositories.chunk_repository import ChunkRepository
-from rag.repositories.document_repository import (
-    DocumentRepository,
-)
-from rag.resources.database.client import Database
-from rag.resources.database.models import ChunkRecord, DocumentRecord
-from rag.services.documents.types.chunk import Chunk
-from rag.services.documents.types.document import (
-    Document,
-    DocumentStatus,
-    SourceType,
-)
+from rag.repositories.document_repository import DocumentRepository
+from rag.resources.database.client import DatabaseResource
+from rag.resources.database.models import DocumentRecord
+from rag.services.documents.types.document import Document, DocumentStatus, SourceType
 
 pytestmark = pytest.mark.integration
 
 
-def require_services() -> None:
+def require_services():
     if os.getenv("RUN_RAG_INTEGRATION") != "1":
-        pytest.skip("set RUN_RAG_INTEGRATION=1 after starting local services")
+        pytest.skip("set RUN_RAG_INTEGRATION=1 with a migrated NEW database")
 
 
-async def wait_for_status(
-    container: ApplicationContainer, document_id, status: DocumentStatus, timeout=240
-):
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        document = await (await resolve(container.repositories.documents)).get(
-            document_id
-        )
-        if document and document.status is status:
-            return document
-        if document and document.status is DocumentStatus.FAILED:
-            raise AssertionError(f"document failed: {document.last_error}")
-        await asyncio.sleep(0.25)
-    raise TimeoutError(f"document did not reach {status.value}")
-
-
-@pytest.mark.asyncio
-async def test_database_constraints_and_active_hydration() -> None:
+async def test_database_constraints_and_document_lock():
     require_services()
-    database = Database(Settings().database_url)
+    database = DatabaseResource(Settings().database_url)
     await database.connect()
     sessions = database.require_session_factory()
-    documents = DocumentRepository(sessions)
-    document_id, chunk_id = uuid4(), uuid4()
-    document = Document(
-        document_id,
-        f"constraint-{document_id}.md",
-        SourceType.MARKDOWN,
-        "# Constraint",
-        "hash",
-        status=DocumentStatus.PENDING,
-    )
-    chunk = Chunk(chunk_id, document_id, 1, 0, "# Constraint")
+    repository = DocumentRepository(sessions, database.lockEngine)
+    doc = Document(uuid4(), f"test-{uuid4()}", SourceType.MARKDOWN, "test.md", "hash")
+    entered = asyncio.Event()
     try:
-        await documents.create_with_chunks(document, [chunk])
+        async with database.engine.connect() as connection:
+            tables = await connection.run_sync(
+                lambda sync: inspect(sync).get_table_names()
+            )
+            assert "documents" in tables and "chunks" not in tables
+        await repository.create(doc)
         with pytest.raises(IntegrityError):
-            async with sessions.begin() as session:
-                await session.execute(
-                    delete(DocumentRecord).where(DocumentRecord.id == document_id)
-                )
-        with pytest.raises(IntegrityError):
-            async with sessions.begin() as session:
-                session.add(
-                    ChunkRecord(
-                        id=uuid4(),
-                        document_id=document_id,
-                        version=1,
-                        chunk_index=0,
-                        content="duplicate",
-                        metadata_json={},
-                        active=False,
-                    )
-                )
+            await repository.create(
+                Document(uuid4(), doc.source_uri, SourceType.TEXT, "test.txt", "hash")
+            )
+        assert (await repository.get(doc.id)).file_path == "test.md"
 
-        chunks = ChunkRepository(sessions)
-        assert await chunks.hydrate([chunk_id]) == {}
-        await documents.activate_version(document_id, 1)
-        assert chunk_id in await chunks.hydrate([chunk_id])
+        async def contender():
+            async with repository.lock(doc.id):
+                entered.set()
+
+        async with repository.lock(doc.id):
+            task = asyncio.create_task(contender())
+            await asyncio.sleep(0.1)
+            assert not entered.is_set()
+        await asyncio.wait_for(task, 5)
+        assert entered.is_set()
     finally:
         async with sessions.begin() as session:
             await session.execute(
-                delete(ChunkRecord).where(ChunkRecord.document_id == document_id)
-            )
-            await session.execute(
-                delete(DocumentRecord).where(DocumentRecord.id == document_id)
+                delete(DocumentRecord).where(DocumentRecord.id == doc.id)
             )
         await database.close()
 
 
-@pytest.mark.asyncio
-async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() -> None:
+async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
     require_services()
-    settings = Settings()
+    token = uuid4().hex
+    settings = Settings(
+        storage_path=str(tmp_path),
+        qdrant_collection=f"rag_llama_index_test_{token}",
+        rabbitmq_namespace=f"rag.llama-index.test.{token}",
+        rabbitmq_retry_delays=(1, 1, 1),
+    )
     container = create_container(settings)
+    documentId = None
     async with container_lifespan(container):
+        broker = await resolve(container.resources.brokerResource)
         dispatcher = await resolve(container.worker.dispatcher)
-        failure_handler = await resolve(container.worker.failure_handler)
-        rebuild_handler = await resolve(container.worker.rebuild_handler)
-        broker = await resolve(container.resources.broker)
-        await broker.consume(dispatcher.dispatch, failure_handler.handle)
-        source_uri = f"e2e-{uuid4()}.pdf"
-        document_id = None
+        failureHandler = await resolve(container.worker.failureHandler)
+        await broker.consume(dispatcher.dispatch, failureHandler.handle)
+        documentService = await resolve(container.services.documentService)
+        lookup = await resolve(container.services.chunkLookupService)
+
+        async def wait_status(status):
+            async with asyncio.timeout(240):
+                while True:
+                    doc = await documentService.get(documentId)
+                    if doc.status is status:
+                        return doc
+                    if doc.status is DocumentStatus.FAILED:
+                        raise AssertionError(doc.last_error)
+                    await asyncio.sleep(0.2)
+
         output = BytesIO()
         page = canvas.Canvas(output)
-        page.setTitle("RAG E2E")
-        page.drawString(72, 740, "RAG Architecture")
-        page.drawString(72, 710, "PostgreSQL stores document and chunk facts.")
-        page.drawString(72, 680, "Qdrant stores chunk embedding vectors.")
+        page.drawString(
+            72, 740, "Qdrant stores full chunk Nodes and embedding vectors."
+        )
         page.save()
-
         try:
-            created = await (
-                await resolve(container.use_cases.ingest_document)
-            ).execute(
-                output.getvalue(),
-                source_uri,
-                SourceType.PDF,
-                "RAG E2E",
-                {"kind": "test"},
+            upload = await resolve(container.use_cases.uploadFileUseCase)
+            result = await upload.execute(
+                output.getvalue(), f"{token}.pdf", SourceType.PDF, "Qdrant"
             )
-            document_id = created.document_id
-            ready = await wait_for_status(container, document_id, DocumentStatus.READY)
-            chunks = await (await resolve(container.repositories.chunks)).for_version(
-                document_id, ready.current_version
+            documentId = result.document_id
+            await wait_status(DocumentStatus.READY)
+            chunks = await lookup.listChunks(documentId)
+            assert chunks and "Qdrant" in chunks[0].content
+            qdrant = await resolve(container.resources.qdrantResource)
+            info = await qdrant.get_collection(settings.qdrant_collection)
+            vectorConfigs = info.config.params.vectors
+            config = (
+                next(iter(vectorConfigs.values()))
+                if isinstance(vectorConfigs, dict)
+                else vectorConfigs
             )
-            assert chunks
-            assert "PostgreSQL stores document" in ready.content
-
-            info = await (await resolve(container.resources.qdrant)).get_collection(
-                settings.qdrant_collection
-            )
-            dimension = info.config.params.vectors.size
-            assert dimension > 0
-            points = await (await resolve(container.resources.qdrant)).retrieve(
-                settings.qdrant_collection,
-                ids=[str(chunks[0].id)],
-                with_payload=True,
-                with_vectors=False,
-            )
-            assert len(points) == 1
-            assert not points[0].payload
             print(
-                f"embedding_model={settings.embedding_model} dimension={dimension} distance=Cosine"
+                f"model={settings.embedding_model} dimension={config.size} distance={config.distance}"
             )
-
-            results = await (
-                await resolve(container.use_cases.search_knowledge)
-            ).execute("Where are embedding vectors stored?", 1)
-            assert results and results[0].document_id == document_id
-            assert results[0].source_uri == source_uri
-
-            unchanged = await (
-                await resolve(container.use_cases.reindex_document)
-            ).execute(document_id)
-            assert unchanged.version == ready.current_version
-
-            await (await resolve(container.repositories.vectors)).recreate(dimension)
-            assert await rebuild_handler.handle() == len(chunks)
-            rebuilt = await (await resolve(container.resources.qdrant)).retrieve(
-                settings.qdrant_collection,
-                ids=[str(chunk.id) for chunk in chunks],
-                with_payload=True,
-                with_vectors=False,
+            detail = await lookup.getChunkDetail(chunks[0].chunk_id)
+            assert detail.metadata["chunk_index"] == 0
+            query = await resolve(container.use_cases.queryKnowledgeUseCase)
+            hits = await query.execute("Where are chunks stored?", 1)
+            assert hits and hits[0].document_id == documentId
+            duplicate = await upload.execute(
+                output.getvalue(), f"{token}.pdf", SourceType.PDF
             )
-            assert {str(point.id) for point in rebuilt} == {
-                str(chunk.id) for chunk in chunks
-            }
-
-            await (await resolve(container.use_cases.delete_document)).execute(
-                document_id
-            )
-            await wait_for_status(container, document_id, DocumentStatus.DELETED)
-            deleted = await (await resolve(container.resources.qdrant)).retrieve(
-                settings.qdrant_collection,
-                ids=[str(chunk.id) for chunk in chunks],
-                with_vectors=False,
-            )
-            assert deleted == []
+            assert duplicate.version == 1
+            reindex = await resolve(container.use_cases.reindexDocumentUseCase)
+            assert (await reindex.execute(documentId)).version == 2
+            await wait_status(DocumentStatus.READY)
+            assert (await lookup.listChunks(documentId))[0].chunk_id != chunks[
+                0
+            ].chunk_id
+            await qdrant.delete_collection(settings.qdrant_collection)
+            rebuild = await resolve(container.use_cases.rebuildIndexUseCase)
+            # This database must be dedicated to integration tests: rebuild queues stored docs.
+            assert await rebuild.execute() >= 1
+            await wait_status(DocumentStatus.READY)
+            deleteUseCase = await resolve(container.use_cases.deleteDocumentUseCase)
+            await deleteUseCase.execute(documentId)
+            doc = await wait_status(DocumentStatus.DELETED)
+            assert await lookup.listChunks(documentId) == []
+            assert not (tmp_path / doc.file_path).exists()
         finally:
-            if document_id is not None:
-                sessions = (
-                    await resolve(container.resources.database)
-                ).require_session_factory()
-                async with sessions.begin() as session:
+            # Only this test's unique collection, queues and row are removed.
+            await broker.close()
+            qdrant = await resolve(container.resources.qdrantResource)
+            if await qdrant.collection_exists(settings.qdrant_collection):
+                await qdrant.delete_collection(settings.qdrant_collection)
+            database = await resolve(container.resources.databaseResource)
+            if documentId:
+                async with database.require_session_factory().begin() as session:
                     await session.execute(
-                        delete(ChunkRecord).where(
-                            ChunkRecord.document_id == document_id
-                        )
+                        delete(DocumentRecord).where(DocumentRecord.id == documentId)
                     )
-                    await session.execute(
-                        delete(DocumentRecord).where(DocumentRecord.id == document_id)
-                    )
+    # Reconnect solely to delete this run's explicitly named RabbitMQ topology.
+    from rag.resources.messaging.broker import RabbitBrokerResource
+
+    cleanupBroker = RabbitBrokerResource(
+        settings.rabbitmq_url, (1, 1, 1), namespace=settings.rabbitmq_namespace
+    )
+    try:
+        await cleanupBroker.connect()
+        for suffix in ("jobs", "dead", "retry.1", "retry.2", "retry.3"):
+            await cleanupBroker.channel.queue_delete(
+                f"{settings.rabbitmq_namespace}.{suffix}"
+            )
+        for suffix in ("", ".retry", ".dlx"):
+            await cleanupBroker.channel.exchange_delete(
+                settings.rabbitmq_namespace + suffix
+            )
+    finally:
+        await cleanupBroker.close()

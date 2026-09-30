@@ -1,11 +1,9 @@
-from collections.abc import Sequence
-
 from rag.repositories.embedding_repository import EmbeddingRepository
 
 
 class EmbeddingService:
-    def __init__(self, embeddings: EmbeddingRepository) -> None:
-        self._embeddings = embeddings
+    def __init__(self, embeddingRepository: EmbeddingRepository):
+        self.embeddingRepository = embeddingRepository
 
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        return await self._embeddings.embed(texts)
+    async def embedNodes(self, nodes):
+        return await self.embeddingRepository.embedNodes(nodes)

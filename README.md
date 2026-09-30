@@ -1,91 +1,112 @@
-# Local RAG service
+# Local RAG service — llama-index
 
-Python 3.13 service for parsing documents, storing facts in PostgreSQL, indexing
-chunks asynchronously through RabbitMQ and Ollama, and searching vectors in
-Qdrant. The service exposes the same read operations through FastAPI and MCP.
+Python 3.13 + FastAPI/MCP. HTTP uploads store raw files; RabbitMQ workers read,
+split and embed them using LlamaIndex. PostgreSQL stores document management
+data only. Qdrant stores complete Nodes, metadata and vectors.
 
-## Local setup
+## Run locally
 
 ```bash
 uv sync
 docker compose up -d
+# Create this branch's NEW database once (skip if already created):
+docker compose exec postgres createdb -U rag rag_llama_index
 uv run alembic upgrade head
-```
-
-The default embedding model is `qwen3-embedding:8b`. Install it in Ollama and
-keep Ollama available at `http://127.0.0.1:11434`.
-
-Start the HTTP/MCP process and the indexing worker in separate terminals:
-
-```bash
 uv run rag
+# Separate terminal, same working directory / storage path:
 uv run rag-worker
 ```
 
-The browser console is available at `http://127.0.0.1:8000/ui/`, Swagger at
-`http://127.0.0.1:8000/docs`, and the Streamable HTTP MCP endpoint at
-`http://127.0.0.1:8000/mcp`.
+Compose is unchanged from main; create the additional database explicitly.
+Do not recreate an existing container to rename its database. The migration refuses to convert a database containing documents.
+The historical initial migration remains intact; the new revision removes the
+empty chunks table and replaces document content with a file path.
 
-## Dependency injection
+Ollama must be running at `http://127.0.0.1:11434` with `qwen3-embedding:8b`.
+Copy `.env.example` to `.env.llama-index` if configuration is needed.
+Only `RAG_LI_*` environment variables and `.env.llama-index` are loaded:
+main's `.env` is intentionally ignored.
 
-`src/rag/containers/application.py` assembles the shared dependency graph using
-`dependency-injector`. Each HTTP/MCP process and worker owns a separate container.
-Configuration comes from the existing Pydantic `Settings`; connections use
-`Resource` providers. Stateless repositories, retrieval services, use cases and
-worker handlers use container-local `Singleton` providers. The parser and its
-Ingest/Reindex owners remain `Factory` providers to avoid sharing MarkItDown
-across parsing threads. The health HTTP client is also a `Factory`, since each
-probe closes its client.
+Defaults isolate the branch:
 
-The container package follows the dependency layers:
+- Database: `rag_llama_index`.
+- Collection: `rag_llama_index_nodes`, lazily created using the actual embedding dimension.
+- RabbitMQ namespace: `rag.llama-index.indexing`.
+- Files: `statics/<document UUID>/<version>.<extension>`; not publicly mounted.
+  API and worker must share this directory.
 
-```text
-containers/
-├── application.py    # composition root
-├── resources.py      # external clients and lifecycle
-├── repositories.py   # depends on resources
-├── core.py           # depends on repositories and resources
-├── use_cases.py      # HTTP/MCP application operations
-└── worker.py         # parallel top layer: handlers and dispatcher
-```
+Console: http://127.0.0.1:8000/ui/ · Swagger: http://127.0.0.1:8000/docs ·
+MCP: http://127.0.0.1:8000/mcp
 
-Subcontainers declare lower-layer dependencies explicitly. Use cases and worker
-handlers share the same resource/repository providers and do not depend on each
-other.
+## Architecture
 
-HTTP routes use `@inject` with
-`Depends(Provide[ApplicationContainer.use_cases.…])`. MCP receives
-the three use-case providers explicitly and resolves them when a tool is called.
-The worker resolves its dispatcher and failure handler from the same container.
-Business classes retain ordinary constructor arguments and do not import the
-container or injection framework.
+Business classes use explicit constructor injection and suffixes such as
+`FileService`, `FileRepository`, `UploadFileUseCase`; providers and injected
+instances use `fileService`, `fileRepository`, `uploadFileUseCase`.
 
-`src/rag/containers/resources.py` manages startup and reverse-order cleanup, including
-partial startup failures. The broker stops consumption and drains in-flight
-callbacks before the remaining clients are closed. Repository methods continue
-to own their individual database sessions.
+`containers/` assembles resources → repositories → services → use cases;
+worker handlers delegate to use cases. There is no LlamaIndex container or
+integration layer. HTTP alone uses FastAPI Depends. MCP resolves the same
+use-case providers explicitly.
 
-Tests replace dependencies using
-`with container.repositories.documents.override(fake):` or
-`with container.use_cases.search_knowledge.override(fake):`.
-Override dependencies before resolving singleton consumers; if already resolved,
-use `container.reset_singletons()` before resolving them again. Lifecycle exit
-also resets singleton caches so restarting resources cannot retain old clients.
-Async provider resolution uses `await resolve(container.worker.dispatcher)`, which
-also supports synchronous test overrides. HTTP wiring is module-scoped: use one
-active wired app per process and unwire its container after tests/lifespan exit.
+- `UploadFileUseCase`: store raw bytes, create document, confirm publication.
+- `IndexDocumentUseCase`: ReaderService → SplitterService → EmbeddingService →
+  VectorService. Worker owns this processing.
+- `ReaderService`: Markdown/TXT retain heading markers; PDF uses LlamaIndex PDFReader.
+- `MarkdownNodeParser`: implements LlamaIndex NodeParser using main's H2/1200-character
+  chunking algorithm unchanged. H1/H2 become metadata; global chunk_index starts at 0.
+- `EmbeddingRepository`: official OllamaEmbedding through IngestionPipeline.
+- `VectorRepository`: official QdrantVectorStore serialization and Retriever.
+- `ChunkLookupService`: list chunks by document; get full detail by chunk ID.
+- `VectorQueryService`: text query + optional top_k (default 5, range 1..10).
+  No PostgreSQL hydration/validation or candidate over-fetch.
+
+Node IDs are UUID5(document ID, version:chunk_index). Qdrant stores full text,
+source association, document_id, version, chunk_index, source_uri, title,
+heading_h1/heading_h2 and line ranges. Only title and headings participate in
+default metadata-plus-text embedding; technical/user metadata remains available
+but is excluded from embedding. Line ranges refer to the normalized reader text,
+not PDF page coordinates.
+
+## API compatibility and update behavior
+
+Existing HTTP routes, MCP tools and frontend remain available. Two HTTP reads are added:
+
+- `GET /v1/documents/{document_id}/chunks`: ordered chunk list.
+- `GET /v1/chunks/{chunk_id}`: full chunk detail.
+
+The existing `GET /v1/documents/{document_id}/chunks/{chunk_id}` and MCP
+`get_document_chunk(document_id, chunk_id)` still check Node ownership without PG.
+
+Upload supports Markdown, TXT and PDF. Duplicate upload reuses the document;
+different bytes for the same source URI require reindex. Reindex always advances
+the version (including a no-file rebuild), deletes the old file and Nodes, and
+queues the new version. Old results need not remain available. Search does not
+check PG status, so partial Nodes may be visible during multi-batch writes.
+
+Per-document PostgreSQL advisory locks serialize API/worker operations across
+processes. Lock connections use a separate unpooled engine so waiting locks do
+not exhaust the CRUD connection pool. Stale jobs do nothing; retries reuse Node
+IDs. Terminal indexing failure cleans Nodes and records failed. Terminal delete
+failure retains deleting + last_error to prevent old ingest jobs resurrecting it.
+
+The DB/file/broker/Qdrant changes are not one transaction. Raw files are retained
+for failed indexing retries; process crashes between file storage and DB writes
+can leave orphan files. No outbox, automatic orphan sweeper, atomic version switch,
+metadata-filter API, or additional file formats are introduced in this branch.
 
 ## Verification
 
-Fast tests use controlled substitutes and do not require local services:
-
 ```bash
 uv run pytest -q
+RUN_RAG_INTEGRATION=1 uv run pytest tests/integration -q -s
+uv run alembic check
 ```
 
-The integration suite requires PostgreSQL, RabbitMQ, Qdrant, and Ollama. It
-includes a real PDF-to-vector flow and records the detected embedding dimension:
+Integration tests require the new migrated database plus RabbitMQ/Qdrant/Ollama.
+They create uniquely named test collections/queues and delete only those test
+artifacts and test rows. Run against a dedicated test database: the rebuild test
+queues documents from that database.
 
-```bash
-RUN_RAG_INTEGRATION=1 uv run pytest -q -s
-```
+Detailed current contracts are in `regulations/`. Learning progress in
+`target.md` is not advanced by this architecture refactor.

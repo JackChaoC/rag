@@ -68,10 +68,11 @@ def test_container():
     data = ContractData()
     container = create_container()
     for name, value in {
-        "ingest_document": data.ingest,
-        "search_knowledge": data.search,
-        "list_documents": data.list_documents,
-        "get_document_chunk": data.get_chunk,
+        "uploadFileUseCase": data.ingest,
+        "queryKnowledgeUseCase": data.search,
+        "listDocumentsUseCase": data.list_documents,
+        "getChunkDetailUseCase": data.get_chunk,
+        "listDocumentChunksUseCase": UseCase([data.get_chunk.value]),
     }.items():
         getattr(container.use_cases, name).override(providers.Object(value))
     _containers.append(container)
@@ -99,6 +100,8 @@ def test_openapi_contains_public_http_contract() -> None:
         "/v1/documents/{document_id}",
         "/v1/documents/{document_id}/chunks/{chunk_id}",
         "/v1/search",
+        "/v1/documents/{document_id}/chunks",
+        "/v1/chunks/{chunk_id}",
         "/health",
     } <= paths.keys()
 
@@ -143,7 +146,7 @@ async def test_http_rejects_top_k_above_ten() -> None:
 async def test_http_dependency_failure_is_503() -> None:
     container = test_container()
     app = create_app(container)
-    container.use_cases.ingest_document.override(providers.Object(FailingUseCase()))
+    container.use_cases.uploadFileUseCase.override(providers.Object(FailingUseCase()))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
@@ -164,7 +167,7 @@ async def test_http_dependency_failure_is_503() -> None:
 @pytest.mark.asyncio
 async def test_http_health_uses_overridable_use_case() -> None:
     app = create_app(test_container())
-    app.state.container.use_cases.check_health.override(
+    app.state.container.use_cases.checkHealthUseCase.override(
         UseCase(
             HealthStatus(
                 ready=False,
@@ -214,9 +217,9 @@ async def test_frontend_is_served_from_same_origin() -> None:
 async def test_mcp_discovers_and_calls_three_tools() -> None:
     container = test_container()
     server = create_mcp_server(
-        search_knowledge_provider=container.use_cases.search_knowledge,
-        get_document_chunk_provider=container.use_cases.get_document_chunk,
-        list_documents_provider=container.use_cases.list_documents,
+        search_knowledge_provider=container.use_cases.queryKnowledgeUseCase,
+        get_document_chunk_provider=container.use_cases.getChunkDetailUseCase,
+        list_documents_provider=container.use_cases.listDocumentsUseCase,
     )
     async with Client(server) as client:
         tools = await client.list_tools()
@@ -234,12 +237,31 @@ async def test_mcp_discovers_and_calls_three_tools() -> None:
             "get_document_chunk",
             {
                 "document_id": str(
-                    container.use_cases.get_document_chunk().value.document_id
+                    container.use_cases.getChunkDetailUseCase().value.document_id
                 ),
                 "chunk_id": str(
-                    container.use_cases.get_document_chunk().value.chunk_id
+                    container.use_cases.getChunkDetailUseCase().value.chunk_id
                 ),
             },
         )
         assert search.structured_content is not None
         assert chunk.structured_content is not None
+
+
+async def test_chunk_list_detail_and_legacy_ownership():
+    container = test_container()
+    chunk = container.use_cases.getChunkDetailUseCase().value
+    app = create_app(container)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        listed = await client.get(f"/v1/documents/{chunk.document_id}/chunks")
+        detail = await client.get(f"/v1/chunks/{chunk.chunk_id}")
+        nested = await client.get(
+            f"/v1/documents/{chunk.document_id}/chunks/{chunk.chunk_id}"
+        )
+        wrong = await client.get(f"/v1/documents/{uuid4()}/chunks/{chunk.chunk_id}")
+    assert listed.status_code == detail.status_code == nested.status_code == 200
+    assert listed.json() == [detail.json()]
+    assert detail.json() == nested.json()
+    assert wrong.status_code == 404

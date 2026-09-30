@@ -7,16 +7,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env.llama-index", env_prefix="RAG_LI_", extra="ignore"
+    )
 
-    database_url: str = "postgresql://rag:rag@127.0.0.1:5432/rag"
+    database_url: str = "postgresql://rag:rag@127.0.0.1:5432/rag_llama_index"
     rabbitmq_url: str = "amqp://rag:rag@127.0.0.1:5672/"
     qdrant_url: str = "http://127.0.0.1:6333"
     ollama_url: str = "http://127.0.0.1:11434"
     embedding_model: str = "qwen3-embedding:8b"
     ollama_num_gpu: int = Field(default=0, ge=0)
-    qdrant_collection: str = "rag_chunks"
-    search_max_candidates: int = Field(default=100, ge=1)
+    qdrant_collection: str = "rag_llama_index_nodes"
+    storage_path: str = "statics"
+    rabbitmq_namespace: str = "rag.llama-index.indexing"
     rabbitmq_prefetch: int = Field(default=4, ge=1)
     rabbitmq_retry_delays: tuple[int, int, int] = (1, 5, 30)
 

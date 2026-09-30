@@ -1,34 +1,17 @@
-# 基础 RAG 链路验收
+# LlamaIndex 分支验收
 
-## 自动化验证范围
+## 自动化覆盖
 
-> 变更批次：`26-09-21_0`
+> 变更批次：`26-09-30_0`
 > 变更来源：`implement-regulations`
 > 落地状态：`已实现`
 
-实现本批次时必须提供以下可重复验证，不以手工观察代替：
-
-- 单元测试：Parser 接口、Cleaner 确定性、仅按二级标题建立 Section、超长 Section 的 `1200` 字符硬上限、Chunk 标题 Metadata、行号和 Hash 稳定性。
-- 数据库测试：Document/Chunk 约束、级联禁止、版本顺序唯一性、有效状态查询。
-- 消息测试：Routing Key、Publisher Confirm 失败、手动 ACK、有限重试、退避和死信。
-- Worker 集成测试：Ingest、Reindex、Delete 的成功路径、Document title + Section heading + body 的 Embedding 输入、重复投递、过期版本、Ollama 失败、Qdrant 部分成功和 PostgreSQL 状态切换失败。
-- 检索集成测试：Query Embedding、Qdrant 搜索、PostgreSQL 批量回填、排名恢复、无效 Point 过滤和有界 over-fetch。
-- 端到端测试：至少一种非 Markdown 文件完成解析、持久化、异步 Embedding、向量写入和带来源检索；解析失败不发布消息、不产生残留向量。
-- 可重建性测试：清空 `rag_chunks` 后，从 PostgreSQL 有效 Chunk 重建，Point ID 集合与预期一致。
-- 接口契约测试：FastAPI OpenAPI、HTTP 状态码与错误结构、MCP Tool 发现和三个 Tool 调用。
-
-测试必须使用可控替身覆盖外部失败，并提供 Docker Compose 启动真实 PostgreSQL、RabbitMQ 和 Qdrant 的本地集成验证路径。真实 Ollama 可以在日常测试中使用替身，但 PDF 端到端验收必须使用本地 `qwen3-embedding:8b`，并记录实际模型、向量维度和距离度量。
-
-本批次只有在相关产品代码、SQLAlchemy Model、Alembic migration 和测试全部实现，且上述验证通过后，才能由 `implement-regulations` 将状态改为“已实现”。仅创建目录、接口或空测试不满足验收条件，也不得更新 `target.md` 的学习进度。
-
-## Worker 分派结构验收
-
-> 变更批次：`26-09-23_0`
-> 变更来源：`implement-regulations`
-> 落地状态：`已实现`
-
-- Dispatcher 测试必须覆盖 Ingest、Reindex、Delete 三个处理分支、未知 Routing Key 和 Routing Key/operation 不一致。
-- Messaging 测试必须证明 Retry Queue 的 `retry.N` Routing Key 会通过 `x-original-routing-key` 恢复为原业务 Routing Key 后再交给 Dispatcher。
-- Worker 重构后必须继续通过重复 Ingest、过期 Reindex、终态失败清理、Qdrant 成功后 PostgreSQL 失败重试，以及重复 Delete 的幂等测试。
-
-验收条件：Worker 与 Messaging 单元测试全部通过，非集成测试无回归；真实外部服务集成测试仍由 `RUN_RAG_INTEGRATION=1` 显式启用。
+- 保留 main 的切分规则测试；新增 NodeParser 的全局 index、H1/H2 metadata、稳定 ID 与默认 Embedding 输入测试。
+- Reader 实测 Markdown/PDF；FileRepository 覆盖原文件存储、删除与路径穿越拒绝。
+- 本地真实 Qdrant SDK + 官方 LlamaIndex 适配器测试完整 Node 往返、排序、查询、删除及 Collection 删除后重建；Embedding 替身仅用于日常快速测试。
+- API 测试覆盖 OpenAPI、错误格式、新增 Chunk GET、旧 HTTP/MCP 契约、Tool schema 与依赖替换。
+- Worker 覆盖重复索引/删除、旧任务无操作、状态切换失败后重试、终态清理；Broker 覆盖 retry、dead-letter、ACK 与退出等待。
+- 容器覆盖共享依赖、资源逆序关闭、启动失败/取消、HTTP/MCP 使用同一 provider；架构测试禁止跨层导入。
+- 显式 RUN_RAG_INTEGRATION=1 启用真实 PostgreSQL、RabbitMQ、Qdrant、Ollama：文档约束/跨连接锁、PDF 到检索/更新/重建/删除、真实延迟重试。
+- migration 在新空库执行，alembic check 无结构差异；不迁移旧库。
+- 不更新学习阶段完成度，不把架构重构等同于完成 Agent 学习。

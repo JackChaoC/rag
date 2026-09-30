@@ -3,9 +3,9 @@ from rag.services.health.types.health_status import HealthStatus
 
 
 class HealthService:
-    def __init__(self, health: HealthRepository) -> None:
-        self._health = health
+    def __init__(self, healthRepository: HealthRepository) -> None:
+        self.healthRepository = healthRepository
 
     async def check(self) -> HealthStatus:
-        checks = await self._health.check_all()
+        checks = await self.healthRepository.check_all()
         return HealthStatus(ready=all(checks.values()), dependencies=checks)

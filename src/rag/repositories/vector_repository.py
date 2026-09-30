@@ -1,73 +1,71 @@
-from __future__ import annotations
-
-from collections.abc import Sequence
+import asyncio
 from uuid import UUID
 
-from qdrant_client import AsyncQdrantClient, models
-
-from rag.services.indexing.types.vector_record import VectorRecord
-from rag.services.retrieval.types.search_hit import SearchHit
+from llama_index.core import VectorStoreIndex
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from qdrant_client import models
 
 
 class VectorRepository:
-    def __init__(self, client: AsyncQdrantClient, collection: str) -> None:
-        self._client = client
-        self._collection = collection
-
-    async def ensure_collection(self, dimension: int) -> None:
-        if not await self._client.collection_exists(self._collection):
-            await self._client.create_collection(
-                self._collection,
-                vectors_config=models.VectorParams(
-                    size=dimension, distance=models.Distance.COSINE
-                ),
-            )
-            return
-        info = await self._client.get_collection(self._collection)
-        config = info.config.params.vectors
-        if (
-            not isinstance(config, models.VectorParams)
-            or config.size != dimension
-            or config.distance != models.Distance.COSINE
-        ):
-            raise RuntimeError("Qdrant collection vector configuration is incompatible")
-
-    async def upsert(self, records: Sequence[VectorRecord]) -> None:
-        if records:
-            await self._client.upsert(
-                self._collection,
-                points=[
-                    models.PointStruct(id=str(record.id), vector=record.vector)
-                    for record in records
-                ],
-                wait=True,
-            )
-
-    async def delete(self, ids: Sequence[UUID]) -> None:
-        if ids:
-            await self._client.delete(
-                self._collection,
-                points_selector=models.PointIdsList(points=[str(item) for item in ids]),
-                wait=True,
-            )
-
-    async def search(
-        self, vector: list[float], limit: int, offset: int = 0
-    ) -> list[SearchHit]:
-        result = await self._client.query_points(
-            collection_name=self._collection,
-            query=vector,
-            limit=limit,
-            offset=offset,
-            with_payload=False,
-            with_vectors=False,
+    def __init__(self, qdrantResource, ollamaResource, collection: str):
+        self.qdrantResource = qdrantResource
+        self.ollamaResource = ollamaResource
+        self.collection = collection
+        self._writeLock = asyncio.Lock()
+        self.vectorStore = QdrantVectorStore(
+            collection_name=collection, aclient=qdrantResource
         )
-        return [
-            SearchHit(UUID(str(point.id)), float(point.score))
-            for point in result.points
-        ]
 
-    async def recreate(self, dimension: int) -> None:
-        if await self._client.collection_exists(self._collection):
-            await self._client.delete_collection(self._collection)
-        await self.ensure_collection(dimension)
+    async def add(self, nodes):
+        if not nodes:
+            return
+        # Serialize first-collection creation; a removed collection can be rebuilt.
+        async with self._writeLock:
+            if not await self.qdrantResource.collection_exists(self.collection):
+                self.vectorStore = QdrantVectorStore(
+                    collection_name=self.collection, aclient=self.qdrantResource
+                )
+            await self.vectorStore.async_add(nodes)
+
+    async def deleteDocument(self, documentId: UUID):
+        if await self.qdrantResource.collection_exists(self.collection):
+            await self.vectorStore.adelete(str(documentId))
+
+    async def listChunks(self, documentId: UUID):
+        if not await self.qdrantResource.collection_exists(self.collection):
+            return []
+        nodes, offset = [], None
+        while True:
+            points, offset = await self.qdrantResource.scroll(
+                collection_name=self.collection,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=str(documentId)),
+                        )
+                    ]
+                ),
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            nodes.extend(self.vectorStore.parse_to_query_result(points).nodes)
+            if offset is None:
+                break
+        return sorted(nodes, key=lambda node: node.metadata["chunk_index"])
+
+    async def getChunkDetail(self, chunkId: UUID):
+        if not await self.qdrantResource.collection_exists(self.collection):
+            return None
+        nodes = await self.vectorStore.aget_nodes(node_ids=[str(chunkId)])
+        return nodes[0] if nodes else None
+
+    async def query(self, text: str, top_k: int = 5):
+        if not await self.qdrantResource.collection_exists(self.collection):
+            return []
+        index = VectorStoreIndex.from_vector_store(
+            self.vectorStore, embed_model=self.ollamaResource
+        )
+        return await index.as_retriever(similarity_top_k=top_k).aretrieve(text)

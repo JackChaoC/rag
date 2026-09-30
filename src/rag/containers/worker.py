@@ -13,27 +13,27 @@ from rag.worker.handlers import (
 class Worker(containers.DeclarativeContainer):
     use_cases = providers.DependenciesContainer()
 
-    document_ingest_handler = providers.Singleton(
-        DocumentIngestHandler, index_document=use_cases.index_document
+    documentIngestHandler = providers.Singleton(
+        DocumentIngestHandler, indexDocumentUseCase=use_cases.indexDocumentUseCase
     )
-    document_reindex_handler = providers.Singleton(
-        DocumentReindexHandler, index_document=use_cases.index_document
+    documentReindexHandler = providers.Singleton(
+        DocumentReindexHandler, indexDocumentUseCase=use_cases.indexDocumentUseCase
     )
-    document_delete_handler = providers.Singleton(
+    documentDeleteHandler = providers.Singleton(
         DocumentDeleteHandler,
-        delete_document_index=use_cases.delete_document_index,
+        deleteDocumentIndexUseCase=use_cases.deleteDocumentIndexUseCase,
     )
     dispatcher = providers.Singleton(
         IndexingDispatcher,
-        document_ingest_handler=document_ingest_handler,
-        document_reindex_handler=document_reindex_handler,
-        document_delete_handler=document_delete_handler,
+        documentIngestHandler=documentIngestHandler,
+        documentReindexHandler=documentReindexHandler,
+        documentDeleteHandler=documentDeleteHandler,
     )
-    failure_handler = providers.Singleton(
+    failureHandler = providers.Singleton(
         FailureHandler,
-        finalize_index_failure=use_cases.finalize_index_failure,
+        finalizeIndexFailureUseCase=use_cases.finalizeIndexFailureUseCase,
     )
-    rebuild_handler = providers.Singleton(
+    rebuildHandler = providers.Singleton(
         RebuildHandler,
-        rebuild_index=use_cases.rebuild_index,
+        rebuildIndexUseCase=use_cases.rebuildIndexUseCase,
     )

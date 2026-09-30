@@ -3,62 +3,28 @@ import os
 from uuid import uuid4
 
 import pytest
-from qdrant_client import AsyncQdrantClient
 
 from rag.config import Settings
-from rag.repositories.vector_repository import VectorRepository
-from rag.resources.database.client import Database
-from rag.resources.embedding.ollama_embedder import OllamaEmbedder
-from rag.resources.messaging.broker import RabbitBroker
+from rag.resources.messaging.broker import RabbitBrokerResource
 from rag.services.indexing.types.message import IndexMessage, IndexOperation
 
 pytestmark = pytest.mark.integration
 
 
-@pytest.mark.asyncio
-async def test_postgres_rabbit_qdrant_and_real_ollama() -> None:
+async def test_real_rabbit_retry_returns_to_jobs_queue():
     if os.getenv("RUN_RAG_INTEGRATION") != "1":
         pytest.skip("set RUN_RAG_INTEGRATION=1 after starting local services")
     settings = Settings()
-    database = Database(settings.database_url)
-    broker = RabbitBroker(settings.rabbitmq_url, settings.rabbitmq_retry_delays)
-    qdrant = AsyncQdrantClient(url=settings.qdrant_url)
-    embedder = OllamaEmbedder(
-        settings.ollama_url, settings.embedding_model, num_gpu=settings.ollama_num_gpu
-    )
-    try:
-        await asyncio.wait_for(database.connect(), 15)
-        await asyncio.wait_for(broker.connect(), 15)
-        assert await database.ping()
-        assert await broker.ping()
-        vector = (await asyncio.wait_for(embedder.embed(["dimension test"]), 180))[0]
-        assert len(vector) > 0
-        repository = VectorRepository(qdrant, settings.qdrant_collection)
-        await asyncio.wait_for(repository.ensure_collection(len(vector)), 15)
-        info = await asyncio.wait_for(
-            qdrant.get_collection(settings.qdrant_collection), 15
-        )
-        assert info.config.params.vectors.size == len(vector)
-    finally:
-        await embedder.aclose()
-        await qdrant.close()
-        await asyncio.wait_for(broker.close(), 15)
-        await asyncio.wait_for(database.close(), 15)
-
-
-@pytest.mark.asyncio
-async def test_real_rabbit_retry_returns_to_jobs_queue() -> None:
-    if os.getenv("RUN_RAG_INTEGRATION") != "1":
-        pytest.skip("set RUN_RAG_INTEGRATION=1 after starting local services")
-    settings = Settings()
-    broker = RabbitBroker(settings.rabbitmq_url, settings.rabbitmq_retry_delays)
+    namespace = f"rag.llama-index.test.{uuid4().hex}"
+    broker = RabbitBrokerResource(settings.rabbitmq_url, (1, 1, 1), namespace=namespace)
     message = IndexMessage(uuid4(), IndexOperation.INGEST, 1)
     attempts = 0
     completed = asyncio.Event()
 
-    async def handler(received: IndexMessage) -> None:
+    async def handler(routing_key, received):
         nonlocal attempts
         assert received == message
+        assert routing_key == "document.ingest"
         attempts += 1
         if attempts == 1:
             raise RuntimeError("retry once")
@@ -68,7 +34,12 @@ async def test_real_rabbit_retry_returns_to_jobs_queue() -> None:
         await broker.connect()
         await broker.consume(handler)
         await broker.publish(message)
-        await asyncio.wait_for(completed.wait(), 10)
+        await asyncio.wait_for(completed.wait(), 15)
         assert attempts == 2
     finally:
+        if broker.channel:
+            for suffix in ("jobs", "dead", "retry.1", "retry.2", "retry.3"):
+                await broker.channel.queue_delete(f"{namespace}.{suffix}")
+            for suffix in ("", ".retry", ".dlx"):
+                await broker.channel.exchange_delete(namespace + suffix)
         await broker.close()

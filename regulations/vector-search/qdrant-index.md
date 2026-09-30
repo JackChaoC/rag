@@ -1,46 +1,26 @@
-# Qdrant 索引模型与检索回填
+# Qdrant Nodes 与检索
 
-## Collection 与 Point 契约
+## Node 与 Embedding
 
-> 变更批次：`26-09-19_1`
-> 变更来源：`improve-regulations`
-> 落地状态：`已实现`
-> 实现优先级：`P0`
-
-- 使用单个 Collection `rag_chunks`。
-- Point 只包含 `id` 与一个 Dense Vector；`id` 必须等于 PostgreSQL `chunks.id`，Vector 类型为 `FLOAT32[embedding_dimension]`。
-- Point 不保存 Payload，不复制正文、`document_id`、版本、`active` 或 Metadata。
-- `embedding_dimension` 由配置的 Embedding 模型决定；模型没有特殊要求时距离度量使用 `Cosine`。
-- 默认模型为本地 Ollama `qwen3-embedding:8b`；Collection 创建时以一次真实 Embed 响应的长度确定 `embedding_dimension`。
-- 服务启动和 Worker 写入前必须校验现有 Collection 的向量维度和距离度量。配置不兼容时必须快速失败并要求显式重建，不得向不兼容 Collection 写入。
-
-Qdrant 是派生索引。删除 Collection 或 Point 后，系统必须能仅根据 PostgreSQL 中的有效 Chunk 重新生成全部向量；不得从 Qdrant 反向恢复业务事实。
-
-## Document Embedding 输入
-
-> 变更批次：`26-09-21_0`
+> 变更批次：`26-09-30_0`
 > 变更来源：`implement-regulations`
 > 落地状态：`已实现`
 
-Worker 为 Chunk 生成 Document Embedding 时，按 Markdown 结构依次拼接非空的 Document `title`、Chunk `metadata.heading` 和 Chunk `content`。若正文开头已包含相同二级标题，拼接时不得重复该标题。Document title 或 Section heading 不存在时必须自然退化为剩余内容；两者都不存在时 Embedding 输入等于清理首尾空白后的 `chunk.content`。
+- 默认独立 Collection rag_llama_index_nodes；官方 QdrantVectorStore 管理命名 Dense Vector、Cosine 与完整 Node payload（含 _node_content），不维护自定义序列化。
+- Node 存完整文本、document_id、version、chunk_index、source_uri、title、heading_h1、heading_h2、start_line/end_line 及自定义 metadata；无 PG Chunk ID 依赖。
+- EmbeddingRepository 注入 OllamaEmbedding Resource，使用 IngestionPipeline 转换 Nodes；默认 Metadata + 文本格式保留 title/H1/H2，其他 metadata 从 Embedding 输入排除。
+- Query 使用同一 OllamaEmbedding；只传查询文本，无文档 Metadata。
+- Collection 按首批向量真实维度建立，错误不静默降级。Collection 被删除后可用保存的原文件重新解析、切块、生成向量，不依赖 PG chunks。
+- 写入用 Node ID 幂等覆盖；按文档删除用官方适配器 SOURCE/ref_doc_id 关联。并发首次创建在 Repository 内串行化。
 
-Query Embedding 只处理用户查询文本，不拼接 Document title、Section heading 或其他 Document Metadata。第一版不为 title 与 body 建立独立向量。
+## Chunk GET 与向量 Query
 
-## 搜索与 PostgreSQL 回填
-
-> 变更批次：`26-09-19_0`
-> 变更来源：`improve-regulations`
+> 变更批次：`26-09-30_0`
+> 变更来源：`implement-regulations`
 > 落地状态：`已实现`
-> 实现优先级：`P0`
 
-1. 查询文本通过同一兼容 Embedding 模型生成 Query Vector。
-2. Qdrant 只返回候选 `chunk_id` 和相似度 `score`。
-3. Retrieval Service 按 ID 批量查询 PostgreSQL，只接受 `active = true`、所属 Document 为 `ready` 且 Chunk 版本等于 `documents.current_version` 的记录。
-4. 回填结果必须恢复为 Qdrant 给出的顺序，并保留原始相似度分数；数据库返回顺序不得改变排名。
-5. 找不到、已停用或版本过期的 Point 属于脏索引，必须从响应中排除并记录为可观测事件。
-
-由于 Qdrant 没有 Payload 过滤，检索必须支持有界 over-fetch：过滤后不足请求的 Top-K 时继续取得候选，直到数量满足或达到配置的最大候选数。不得返回无效 Chunk 填满结果。
-
-第一版只规范 Dense 检索。Sparse/BM25、RRF 和 Reranker 在后续学习阶段另行定义，当前实现不得提前把这些能力伪装成已支持。
-
-验收条件：搜索响应中的每个 Chunk 都能在 PostgreSQL 中找到且满足有效版本规则；批量回填后排名和分数保持不变；注入孤儿或停用 Point 时不会泄漏到响应；Collection 配置不兼容时启动或写入明确失败。
+- ChunkLookupService.listChunks(documentId)：Qdrant scroll 分页读取全部文档 Nodes，再按 chunk_index 排序。
+- ChunkLookupService.getChunkDetail(chunkId)：按 Node ID 读取全量内容，不存在报 NotFound。
+- 两种 GET 分别由 ListDocumentChunksUseCase 和 GetChunkDetailUseCase 提供，不计算 Embedding。
+- VectorQueryService.query(text, top_k=5)：由官方 VectorStoreIndex Retriever 生成查询向量并取 Top-K。允许范围 1..10，保持 Qdrant 分数/排名，不做 PG 验证、回填、max_candidates 或 over-fetch。
+- 不提供 Metadata Filter、Sparse、Hybrid、Reranker 或答案生成。

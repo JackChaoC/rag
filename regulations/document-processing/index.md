@@ -3,7 +3,7 @@
 ## 权威内容
 
 - 支持文件进入统一 Markdown Pipeline 的方式。
-- MarkItDown、Cleaner 与 Chunker 的职责边界。
+- ReaderService、SplitterService 与 NodeParser 的职责边界。
 - Chunk 顺序、行号、Metadata 和解析失败行为。
 
 ## 明确不包含
@@ -15,4 +15,3 @@
 ## 具体规范
 
 - [解析、清洗与切块 Pipeline](pipeline.md)
-

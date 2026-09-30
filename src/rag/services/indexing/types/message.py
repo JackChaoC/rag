@@ -31,4 +31,8 @@ class IndexMessage:
     @classmethod
     def decode(cls, body: bytes) -> "IndexMessage":
         data = json.loads(body)
-        return cls(UUID(data["document_id"]), IndexOperation(data["operation"]), int(data["version"]))
+        return cls(
+            UUID(data["document_id"]),
+            IndexOperation(data["operation"]),
+            int(data["version"]),
+        )

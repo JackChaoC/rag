@@ -2,16 +2,18 @@
 
 ## HTTP API
 
-> 变更批次：`26-09-19_4`
+> 变更批次：`26-09-30_0`
 > 变更来源：`implement-regulations`
 > 落地状态：`已实现`
 
 第一版提供以下端点：
 
-- `POST /v1/documents`：接收 `multipart/form-data`，字段为 `file`、必填 `source_uri`、可选 `title` 和可选 JSON Object 字符串 `metadata`；完成解析和 PostgreSQL 保存并收到 RabbitMQ Publisher Confirm 后返回 `202`。
-- `POST /v1/documents/{document_id}/reindex`：接收可选 `multipart/form-data` 文件。提供文件时先按原 Document 的 `source_uri` 解析并替换保存的 Markdown；未提供文件时基于 PostgreSQL 已保存 Markdown 重建。内容或处理配置没有变化时返回当前版本且不创建无效新版本；否则创建下一版本 Chunk，确认发布 Reindex 消息后返回 `202`。
+- `POST /v1/documents`：接收 `multipart/form-data`，字段为 `file`、必填 `source_uri`、可选 `title` 和可选 JSON Object 字符串 `metadata`；完成原文件保存和 PostgreSQL 管理记录保存并收到 RabbitMQ Publisher Confirm 后返回 `202`。
+- `POST /v1/documents/{document_id}/reindex`：接收可选 `multipart/form-data` 文件。提供文件时替换原文件；未提供文件时读取当前存储文件。两者均创建下一版本，删除旧文件/Nodes，确认发布 Reindex 消息后返回 `202`。
 - `DELETE /v1/documents/{document_id}`：把文档置为 `deleting` 并确认发布 Delete 消息后返回 `202`。
 - `GET /v1/documents`：返回文档摘要列表，不返回完整正文。
+- `GET /v1/documents/{document_id}/chunks`：按 chunk_index 返回指定文档全部 Chunk。
+- `GET /v1/chunks/{chunk_id}`：按 Chunk ID 返回全量内容与来源。
 - `GET /v1/documents/{document_id}/chunks/{chunk_id}`：只在 Chunk 属于指定 Document 时返回内容与引用信息。
 - `POST /v1/search`：接收 `query` 和 `top_k`，返回 Dense 检索结果，不调用 LLM。
 - `GET /health`：分别报告进程存活和 PostgreSQL、RabbitMQ、Qdrant、Ollama 的依赖状态；依赖失败时不得仍报告整体 ready。
@@ -24,7 +26,7 @@
 
 ## 本地 Web Console
 
-> 变更批次：`26-09-19_4`
+> 变更批次：`26-09-30_0`
 > 变更来源：`implement-regulations`
 > 落地状态：`已实现`
 

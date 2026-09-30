@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 
 def sqlalchemy_url(dsn: str) -> str:
@@ -19,10 +20,11 @@ def sqlalchemy_url(dsn: str) -> str:
     return dsn
 
 
-class Database:
+class DatabaseResource:
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
         self.engine: AsyncEngine | None = None
+        self.lockEngine = create_async_engine(sqlalchemy_url(dsn), poolclass=NullPool)
         self.session_factory: async_sessionmaker[AsyncSession] | None = None
 
     async def connect(self) -> None:
@@ -42,6 +44,7 @@ class Database:
             self.session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async def close(self) -> None:
+        await self.lockEngine.dispose()
         if self.engine is not None:
             await self.engine.dispose()
             self.engine = None

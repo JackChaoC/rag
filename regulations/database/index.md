@@ -7,6 +7,7 @@
 | 文件 | 拥有的表 |
 |---|---|
 | [`documents.sql`](documents.sql) | `documents` |
-| [`chunks.sql`](chunks.sql) | `chunks` |
+
+Chunk 全量信息属于 Qdrant Node；本分支没有 PostgreSQL chunks 表。
 
 本分类不定义 ORM 使用方式、事务流程、migration、回填、连接池、消息发布或部署命令。

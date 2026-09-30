@@ -1,19 +1,10 @@
 from io import BytesIO
+from uuid import uuid4
 
-import pytest
 from reportlab.pdfgen import canvas
 
-from rag.services.document_processing.chunker import chunk_markdown
-from rag.services.document_processing.cleaner import clean_markdown
-from rag.services.document_processing.parser import DocumentParser
-from rag.services.documents.types.document import SourceType
-
-
-def test_cleaner_is_deterministic() -> None:
-    source = "# Title  \r\n\r\n\r\nText   \r\n"
-    once = clean_markdown(source)
-    assert once == "# Title\n\nText\n"
-    assert clean_markdown(once) == once
+from rag.services.reading.reader_service import ReaderService
+from rag.services.splitting.chunker import chunk_markdown
 
 
 def test_chunker_splits_only_on_h2_and_preserves_one_based_lines() -> None:
@@ -48,15 +39,17 @@ def test_h1_and_h3_do_not_create_section_boundaries() -> None:
     assert drafts[0].content == "# Document\nintro\n### Detail\nbody"
 
 
-@pytest.mark.asyncio
-async def test_parser_reads_markdown_and_pdf() -> None:
-    parser = DocumentParser()
-    markdown = await parser.parse(b"# Hello", SourceType.MARKDOWN)
-    assert markdown.markdown == "# Hello"
-
+async def test_reader_preserves_markdown_and_reads_pdf(tmp_path):
+    readerService = ReaderService()
+    markdown = tmp_path / "example.md"
+    markdown.write_text("# Hello\n\n## World")
+    documents = await readerService.read(markdown, uuid4(), {})
+    assert documents[0].text == "# Hello\n\n## World"
     output = BytesIO()
     page = canvas.Canvas(output)
     page.drawString(72, 720, "PDF heading")
     page.save()
-    pdf = await parser.parse(output.getvalue(), SourceType.PDF)
-    assert "PDF heading" in pdf.markdown
+    pdf = tmp_path / "example.pdf"
+    pdf.write_bytes(output.getvalue())
+    documents = await readerService.read(pdf, uuid4(), {})
+    assert "PDF heading" in documents[0].text
