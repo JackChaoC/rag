@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 import aio_pika
 from aio_pika import DeliveryMode, ExchangeType, IncomingMessage, Message
 
-from rag.services.indexing.types.message import IndexMessage
+from rag.services.publisher.types.message import IndexMessage
 
 MAIN_EXCHANGE = "rag.llama-index.indexing"
 

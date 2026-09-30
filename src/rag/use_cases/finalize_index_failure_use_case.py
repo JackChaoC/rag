@@ -1,7 +1,7 @@
 from rag.services.documents.document_service import DocumentService
 from rag.services.documents.types.document import DocumentStatus
-from rag.services.indexing.types.message import IndexOperation
-from rag.services.indexing.vector_service import VectorService
+from rag.services.publisher.types.message import IndexOperation
+from rag.services.vector.vector_service import VectorService
 
 
 class FinalizeIndexFailureUseCase:

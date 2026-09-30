@@ -21,19 +21,19 @@ class UseCases(containers.DeclarativeContainer):
         UploadFileUseCase,
         fileService=services.fileService,
         documentService=services.documentService,
-        indexTaskService=services.indexTaskService,
+        publishIngestionDocumentTaskService=services.publishIngestionDocumentTaskService,
     )
     reindexDocumentUseCase = providers.Factory(
         ReindexDocumentUseCase,
         fileService=services.fileService,
         documentService=services.documentService,
         vectorService=services.vectorService,
-        indexTaskService=services.indexTaskService,
+        publishIngestionDocumentTaskService=services.publishIngestionDocumentTaskService,
     )
     deleteDocumentUseCase = providers.Factory(
         DeleteDocumentUseCase,
         documentService=services.documentService,
-        indexTaskService=services.indexTaskService,
+        publishIngestionDocumentTaskService=services.publishIngestionDocumentTaskService,
     )
     listDocumentsUseCase = providers.Factory(
         ListDocumentsUseCase,
@@ -78,5 +78,5 @@ class UseCases(containers.DeclarativeContainer):
     rebuildIndexUseCase = providers.Factory(
         RebuildIndexUseCase,
         documentService=services.documentService,
-        indexTaskService=services.indexTaskService,
+        publishIngestionDocumentTaskService=services.publishIngestionDocumentTaskService,
     )

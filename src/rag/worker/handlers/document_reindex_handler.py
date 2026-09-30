@@ -1,4 +1,4 @@
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
 from rag.use_cases.index_document_use_case import IndexDocumentUseCase
 
 

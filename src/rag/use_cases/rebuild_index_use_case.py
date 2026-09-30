@@ -1,15 +1,19 @@
 from rag.services.documents.document_service import DocumentService
 from rag.services.documents.types.document import DocumentStatus
-from rag.services.indexing.index_task_service import IndexTaskService
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
+from rag.services.publisher.publish_ingestion_document_task_service import (
+    PublishIngestionDocumentTaskService,
+)
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 
 class RebuildIndexUseCase:
     def __init__(
-        self, documentService: DocumentService, indexTaskService: IndexTaskService
+        self,
+        documentService: DocumentService,
+        publishIngestionDocumentTaskService: PublishIngestionDocumentTaskService,
     ) -> None:
         self.documentService = documentService
-        self.indexTaskService = indexTaskService
+        self.publishIngestionDocumentTaskService = publishIngestionDocumentTaskService
 
     async def execute(self) -> int:
         """Queue current versions for rebuilding from stored files; return document count."""
@@ -19,7 +23,7 @@ class RebuildIndexUseCase:
                 document = await self.documentService.get(item.id)
                 if document.status not in {DocumentStatus.READY, DocumentStatus.FAILED}:
                     continue
-                await self.indexTaskService.publish(
+                await self.publishIngestionDocumentTaskService.publish(
                     IndexMessage(
                         document.id, IndexOperation.REINDEX, document.current_version
                     )

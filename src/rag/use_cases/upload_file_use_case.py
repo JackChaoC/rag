@@ -5,8 +5,10 @@ from rag.services.common.errors import ConflictError, DependencyError
 from rag.services.documents.document_service import DocumentService
 from rag.services.documents.types.document import Document, DocumentStatus
 from rag.services.files.file_service import FileService
-from rag.services.indexing.index_task_service import IndexTaskService
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
+from rag.services.publisher.publish_ingestion_document_task_service import (
+    PublishIngestionDocumentTaskService,
+)
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 
 class UploadFileUseCase:
@@ -14,11 +16,11 @@ class UploadFileUseCase:
         self,
         fileService: FileService,
         documentService: DocumentService,
-        indexTaskService: IndexTaskService,
+        publishIngestionDocumentTaskService: PublishIngestionDocumentTaskService,
     ) -> None:
         self.fileService = fileService
         self.documentService = documentService
-        self.indexTaskService = indexTaskService
+        self.publishIngestionDocumentTaskService = publishIngestionDocumentTaskService
 
     async def execute(self, data, source_uri, source_type, title=None, metadata=None):
         if not data:
@@ -72,7 +74,7 @@ class UploadFileUseCase:
         await self.documentService.set_status(document.id, DocumentStatus.PENDING)
         document.status = DocumentStatus.PENDING
         try:
-            await self.indexTaskService.publish(
+            await self.publishIngestionDocumentTaskService.publish(
                 IndexMessage(
                     document.id, IndexOperation.INGEST, document.current_version
                 )

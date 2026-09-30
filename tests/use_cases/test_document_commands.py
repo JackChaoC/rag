@@ -2,7 +2,7 @@ import pytest
 
 from rag.services.common.errors import ConflictError, DependencyError
 from rag.services.documents.types.document import DocumentStatus, SourceType
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 
 async def upload(container, data=b"# Hello\n## World\nbody", uri="doc.md"):

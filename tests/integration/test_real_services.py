@@ -6,7 +6,7 @@ import pytest
 
 from rag.config import Settings
 from rag.resources.messaging.broker import RabbitBrokerResource
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 pytestmark = pytest.mark.integration
 

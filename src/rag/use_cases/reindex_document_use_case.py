@@ -5,9 +5,11 @@ from rag.services.common.errors import DependencyError, NotFoundError
 from rag.services.documents.document_service import DocumentService
 from rag.services.documents.types.document import DocumentStatus
 from rag.services.files.file_service import FileService
-from rag.services.indexing.index_task_service import IndexTaskService
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
-from rag.services.indexing.vector_service import VectorService
+from rag.services.publisher.publish_ingestion_document_task_service import (
+    PublishIngestionDocumentTaskService,
+)
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
+from rag.services.vector.vector_service import VectorService
 
 
 class ReindexDocumentUseCase:
@@ -16,12 +18,12 @@ class ReindexDocumentUseCase:
         fileService: FileService,
         documentService: DocumentService,
         vectorService: VectorService,
-        indexTaskService: IndexTaskService,
+        publishIngestionDocumentTaskService: PublishIngestionDocumentTaskService,
     ) -> None:
         self.fileService = fileService
         self.documentService = documentService
         self.vectorService = vectorService
-        self.indexTaskService = indexTaskService
+        self.publishIngestionDocumentTaskService = publishIngestionDocumentTaskService
 
     async def execute(self, documentId, data=None):
         async with self.documentService.lock(documentId):
@@ -54,7 +56,7 @@ class ReindexDocumentUseCase:
             try:
                 await self.fileService.delete(current.file_path)
                 await self.vectorService.deleteDocument(documentId)
-                await self.indexTaskService.publish(
+                await self.publishIngestionDocumentTaskService.publish(
                     IndexMessage(documentId, IndexOperation.REINDEX, version)
                 )
             except Exception as exc:

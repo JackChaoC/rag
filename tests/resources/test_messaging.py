@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from rag.resources.messaging.broker import RabbitBrokerResource
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 
 class Exchange:

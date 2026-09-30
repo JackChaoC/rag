@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from rag.services.documents.types.document import DocumentStatus, SourceType
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
 from rag.worker.dispatcher import IndexingDispatcher
 
 

@@ -1,16 +1,20 @@
 from rag.services.common.errors import DependencyError, NotFoundError
 from rag.services.documents.document_service import DocumentService
 from rag.services.documents.types.document import DocumentStatus
-from rag.services.indexing.index_task_service import IndexTaskService
-from rag.services.indexing.types.message import IndexMessage, IndexOperation
+from rag.services.publisher.publish_ingestion_document_task_service import (
+    PublishIngestionDocumentTaskService,
+)
+from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 
 class DeleteDocumentUseCase:
     def __init__(
-        self, documentService: DocumentService, indexTaskService: IndexTaskService
+        self,
+        documentService: DocumentService,
+        publishIngestionDocumentTaskService: PublishIngestionDocumentTaskService,
     ) -> None:
         self.documentService = documentService
-        self.indexTaskService = indexTaskService
+        self.publishIngestionDocumentTaskService = publishIngestionDocumentTaskService
 
     async def execute(self, documentId):
         async with self.documentService.lock(documentId):
@@ -22,7 +26,7 @@ class DeleteDocumentUseCase:
             document.status = DocumentStatus.DELETING
             await self.documentService.set_status(documentId, document.status)
             try:
-                await self.indexTaskService.publish(
+                await self.publishIngestionDocumentTaskService.publish(
                     IndexMessage(
                         documentId, IndexOperation.DELETE, document.current_version
                     )

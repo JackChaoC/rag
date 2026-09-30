@@ -4,13 +4,15 @@ from rag.services.documents.document_service import DocumentService
 from rag.services.embedding.embedding_service import EmbeddingService
 from rag.services.files.file_service import FileService
 from rag.services.health.health_service import HealthService
-from rag.services.indexing.index_task_service import IndexTaskService
-from rag.services.indexing.vector_service import VectorService
+from rag.services.publisher.publish_ingestion_document_task_service import (
+    PublishIngestionDocumentTaskService,
+)
 from rag.services.reading.reader_service import ReaderService
 from rag.services.retrieval.chunk_lookup_service import ChunkLookupService
 from rag.services.retrieval.vector_query_service import VectorQueryService
 from rag.services.splitting.markdown_node_parser import MarkdownNodeParser
 from rag.services.splitting.splitter_service import SplitterService
+from rag.services.vector.vector_service import VectorService
 
 
 class Services(containers.DeclarativeContainer):
@@ -40,8 +42,9 @@ class Services(containers.DeclarativeContainer):
     vectorQueryService = providers.Singleton(
         VectorQueryService, vectorRepository=repositories.vectorRepository
     )
-    indexTaskService = providers.Singleton(
-        IndexTaskService, indexTaskRepository=repositories.indexTaskRepository
+    publishIngestionDocumentTaskService = providers.Singleton(
+        PublishIngestionDocumentTaskService,
+        indexTaskRepository=repositories.indexTaskRepository,
     )
     healthService = providers.Singleton(
         HealthService, healthRepository=repositories.healthRepository

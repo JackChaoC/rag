@@ -2,9 +2,9 @@ from rag.services.documents.document_service import DocumentService
 from rag.services.documents.types.document import DocumentStatus
 from rag.services.embedding.embedding_service import EmbeddingService
 from rag.services.files.file_service import FileService
-from rag.services.indexing.vector_service import VectorService
 from rag.services.reading.reader_service import ReaderService
 from rag.services.splitting.splitter_service import SplitterService
+from rag.services.vector.vector_service import VectorService
 
 
 class IndexDocumentUseCase:

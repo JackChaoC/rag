@@ -1,4 +1,4 @@
-from rag.services.indexing.types.message import IndexMessage
+from rag.services.publisher.types.message import IndexMessage
 from rag.use_cases.finalize_index_failure_use_case import FinalizeIndexFailureUseCase
 
 
