@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from rag.resources.messaging.broker import RabbitBrokerResource
+from rag.resources.rabbitmq.broker import RabbitMQResource
 from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 
@@ -42,7 +42,7 @@ class Incoming:
 
 @pytest.mark.asyncio
 async def test_recoverable_failure_is_confirmed_to_retry_before_ack() -> None:
-    broker = RabbitBrokerResource("amqp://unused", (1, 5, 30))
+    broker = RabbitMQResource("amqp://unused", (1, 5, 30))
     broker.main_queue = Queue()
     broker.retry_exchange = Exchange()
     broker.dead_exchange = Exchange()
@@ -65,7 +65,7 @@ async def test_recoverable_failure_is_confirmed_to_retry_before_ack() -> None:
 
 @pytest.mark.asyncio
 async def test_close_stops_consumption_and_waits_for_message_ack():
-    broker = RabbitBrokerResource("amqp://unused", (1, 5, 30))
+    broker = RabbitMQResource("amqp://unused", (1, 5, 30))
     broker.main_queue = Queue()
     started, finish = asyncio.Event(), asyncio.Event()
     events = []
@@ -98,7 +98,7 @@ async def test_close_stops_consumption_and_waits_for_message_ack():
 
 @pytest.mark.asyncio
 async def test_fourth_failure_is_dead_lettered_and_marked_failed() -> None:
-    broker = RabbitBrokerResource("amqp://unused", (1, 5, 30))
+    broker = RabbitMQResource("amqp://unused", (1, 5, 30))
     broker.main_queue = Queue()
     broker.retry_exchange = Exchange()
     broker.dead_exchange = Exchange()
@@ -122,7 +122,7 @@ async def test_fourth_failure_is_dead_lettered_and_marked_failed() -> None:
 
 @pytest.mark.asyncio
 async def test_retry_restores_original_operation_routing_key() -> None:
-    broker = RabbitBrokerResource("amqp://unused", (1, 5, 30))
+    broker = RabbitMQResource("amqp://unused", (1, 5, 30))
     broker.main_queue = Queue()
     message = IndexMessage(uuid4(), IndexOperation.REINDEX, 2)
     received = []

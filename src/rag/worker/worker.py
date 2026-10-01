@@ -10,7 +10,7 @@ from rag.containers.resources import container_lifespan, resolve
 async def run() -> None:
     container = create_container()
     async with container_lifespan(container):
-        broker = await resolve(container.resources.brokerResource)
+        broker = await resolve(container.resources.rabbitmqResource)
         dispatcher = await resolve(container.worker.dispatcher)
         failureHandler = await resolve(container.worker.failureHandler)
         await broker.consume(dispatcher.dispatch, failureHandler.handle)

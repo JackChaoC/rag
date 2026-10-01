@@ -1,10 +1,10 @@
-from rag.repositories.index_task_repository import IndexTaskRepository
+from rag.repositories.task_repository import TaskRepository
 from rag.services.publisher.types.message import IndexMessage
 
 
 class PublishIngestionDocumentTaskService:
-    def __init__(self, indexTaskRepository: IndexTaskRepository) -> None:
-        self.indexTaskRepository = indexTaskRepository
+    def __init__(self, taskRepository: TaskRepository) -> None:
+        self.taskRepository = taskRepository
 
     async def publish(self, message: IndexMessage) -> None:
-        await self.indexTaskRepository.publish(message)
+        await self.taskRepository.publish(message)

@@ -45,10 +45,10 @@ class IndexDocumentUseCase:
                     source_uri=document.source_uri,
                     title=document.title or "",
                 )
-                documents = await self.readerService.read(
+                llamaindex_documents = await self.readerService.read(
                     self.fileService.path(document.file_path), document.id, metadata
                 )
-                nodes = self.splitterService.split(documents)
+                nodes = self.splitterService.split(llamaindex_documents)
                 if not nodes:
                     raise ValueError("document has no chunks")
                 nodes = await self.embeddingService.embedNodes(nodes)

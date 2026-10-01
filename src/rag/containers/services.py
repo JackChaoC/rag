@@ -44,8 +44,12 @@ class Services(containers.DeclarativeContainer):
     )
     publishIngestionDocumentTaskService = providers.Singleton(
         PublishIngestionDocumentTaskService,
-        indexTaskRepository=repositories.indexTaskRepository,
+        taskRepository=repositories.taskRepository,
     )
     healthService = providers.Singleton(
-        HealthService, healthRepository=repositories.healthRepository
+        HealthService,
+        documentRepository=repositories.documentRepository,
+        taskRepository=repositories.taskRepository,
+        vectorRepository=repositories.vectorRepository,
+        embeddingRepository=repositories.embeddingRepository,
     )

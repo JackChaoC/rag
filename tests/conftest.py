@@ -55,7 +55,7 @@ async def appContainer(tmp_path):
     container.resources.ollamaResource.override(
         providers.Object(MockEmbedding(embed_dim=8))
     )
-    container.resources.brokerResource.override(
+    container.resources.rabbitmqResource.override(
         providers.Object(SimpleNamespace(publish=AsyncMock()))
     )
     try:

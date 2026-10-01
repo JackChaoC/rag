@@ -1,5 +1,5 @@
-from rag.resources.database.client import sqlalchemy_url
-from rag.resources.database.models import Base
+from rag.resources.postgresql.client import sqlalchemy_url
+from rag.resources.postgresql.models import Base
 
 
 def test_postgresql_dsn_uses_psycopg_sqlalchemy_dialect() -> None:

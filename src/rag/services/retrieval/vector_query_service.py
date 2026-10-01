@@ -7,7 +7,7 @@ class VectorQueryService:
     def __init__(self, vectorRepository: VectorRepository):
         self.vectorRepository = vectorRepository
 
-    async def query(self, text: str, top_k: int = 5):
+    async def query(self, text: str, top_k: int = 5) -> list[SearchResult]:
         if not text.strip():
             raise ValueError("query must not be blank")
         if not 1 <= top_k <= 10:

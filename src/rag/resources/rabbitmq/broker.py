@@ -11,7 +11,7 @@ from rag.services.publisher.types.message import IndexMessage
 MAIN_EXCHANGE = "rag.llama-index.indexing"
 
 
-class RabbitBrokerResource:
+class RabbitMQResource:
     def __init__(
         self,
         url: str,

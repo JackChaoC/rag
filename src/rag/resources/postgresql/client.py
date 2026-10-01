@@ -20,7 +20,7 @@ def sqlalchemy_url(dsn: str) -> str:
     return dsn
 
 
-class DatabaseResource:
+class PostgreSQLResource:
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
         self.engine: AsyncEngine | None = None

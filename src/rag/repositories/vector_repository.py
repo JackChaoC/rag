@@ -2,6 +2,7 @@ import asyncio
 from uuid import UUID
 
 from llama_index.core import VectorStoreIndex
+from llama_index.core.schema import NodeWithScore
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import models
 
@@ -15,6 +16,10 @@ class VectorRepository:
         self.vectorStore = QdrantVectorStore(
             collection_name=collection, aclient=qdrantResource
         )
+
+    async def healthcheck(self) -> bool:
+        await self.qdrantResource.get_collections()
+        return True
 
     async def add(self, nodes):
         if not nodes:
@@ -62,7 +67,7 @@ class VectorRepository:
         nodes = await self.vectorStore.aget_nodes(node_ids=[str(chunkId)])
         return nodes[0] if nodes else None
 
-    async def query(self, text: str, top_k: int = 5):
+    async def query(self, text: str, top_k: int = 5) -> list[NodeWithScore]:
         if not await self.qdrantResource.collection_exists(self.collection):
             return []
         index = VectorStoreIndex.from_vector_store(

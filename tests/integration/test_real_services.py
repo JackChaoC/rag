@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from rag.config import Settings
-from rag.resources.messaging.broker import RabbitBrokerResource
+from rag.resources.rabbitmq.broker import RabbitMQResource
 from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 pytestmark = pytest.mark.integration
@@ -16,7 +16,7 @@ async def test_real_rabbit_retry_returns_to_jobs_queue():
         pytest.skip("set RUN_RAG_INTEGRATION=1 after starting local services")
     settings = Settings()
     namespace = f"rag.llama-index.test.{uuid4().hex}"
-    broker = RabbitBrokerResource(settings.rabbitmq_url, (1, 1, 1), namespace=namespace)
+    broker = RabbitMQResource(settings.rabbitmq_url, (1, 1, 1), namespace=namespace)
     message = IndexMessage(uuid4(), IndexOperation.INGEST, 1)
     attempts = 0
     completed = asyncio.Event()

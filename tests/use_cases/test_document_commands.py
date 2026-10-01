@@ -20,7 +20,7 @@ async def test_upload_only_stores_file_and_queues_job(appContainer):
         == b"not a valid PDF"
     )
     assert await appContainer.services.chunkLookupService().listChunks(doc.id) == []
-    appContainer.resources.brokerResource().publish.assert_awaited_once()
+    appContainer.resources.rabbitmqResource().publish.assert_awaited_once()
 
 
 async def test_duplicate_upload_reuses_document_and_different_content_conflicts(
@@ -34,7 +34,7 @@ async def test_duplicate_upload_reuses_document_and_different_content_conflicts(
 
 
 async def test_upload_confirm_failure_retains_file_and_can_retry(appContainer):
-    broker = appContainer.resources.brokerResource()
+    broker = appContainer.resources.rabbitmqResource()
     broker.publish.side_effect = OSError("confirm failed")
     with pytest.raises(DependencyError):
         await upload(appContainer)
@@ -69,7 +69,7 @@ async def test_reindex_replaces_file_and_removes_old_nodes(appContainer):
 
 async def test_delete_confirm_failure_stays_deleting(appContainer):
     result = await upload(appContainer)
-    appContainer.resources.brokerResource().publish.side_effect = OSError(
+    appContainer.resources.rabbitmqResource().publish.side_effect = OSError(
         "confirm failed"
     )
     with pytest.raises(DependencyError):

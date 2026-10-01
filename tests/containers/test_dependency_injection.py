@@ -28,7 +28,7 @@ def resource_container(events, fail=None):
                 raise RuntimeError("startup failed")
             if name == "qdrant":
                 value = AsyncQdrantClient(location=":memory:")
-            elif name == "embedder":
+            elif name == "ollama":
                 value = MockEmbedding(embed_dim=8)
             else:
                 value = SimpleNamespace(
@@ -43,10 +43,10 @@ def resource_container(events, fail=None):
             events.append("close " + name)
 
     for attr, name in {
-        "databaseResource": "database",
+        "postgresqlResource": "postgresql",
         "qdrantResource": "qdrant",
-        "ollamaResource": "embedder",
-        "brokerResource": "broker",
+        "ollamaResource": "ollama",
+        "rabbitmqResource": "rabbitmq",
     }.items():
         getattr(container.resources, attr).override(providers.Resource(resource, name))
     return container
@@ -99,31 +99,46 @@ async def test_lifespan_reset_discards_closed_resources():
 
 
 @pytest.mark.asyncio
-async def test_health_http_client_factory_is_injected_and_closed():
+async def test_health_service_uses_each_service_repository_healthcheck():
     container = resource_container([])
-    clients = []
-
-    def client_factory():
-        client = httpx.AsyncClient(
-            base_url="http://ollama.test",
-            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
+    repositories = {
+        name: SimpleNamespace(healthcheck=AsyncMock(return_value=True))
+        for name in (
+            "documentRepository",
+            "taskRepository",
+            "vectorRepository",
+            "embeddingRepository",
         )
-        clients.append(client)
-        return client
-
-    container.resources.healthHttpClientResource.override(
-        providers.Factory(client_factory)
-    )
-    async with container_lifespan(container):
-        health = await resolve(container.repositories.healthRepository)
-        assert await health._check_ollama()
-        assert await health._check_ollama()
-    assert len(clients) == 2
-    assert all(client.is_closed for client in clients)
+    }
+    with (
+        container.repositories.documentRepository.override(
+            providers.Object(repositories["documentRepository"])
+        ),
+        container.repositories.taskRepository.override(
+            providers.Object(repositories["taskRepository"])
+        ),
+        container.repositories.vectorRepository.override(
+            providers.Object(repositories["vectorRepository"])
+        ),
+        container.repositories.embeddingRepository.override(
+            providers.Object(repositories["embeddingRepository"])
+        ),
+    ):
+        async with container_lifespan(container):
+            status = await (await resolve(container.services.healthService)).check()
+    assert status.ready
+    assert status.dependencies == {
+        "postgresql": True,
+        "rabbitmq": True,
+        "qdrant": True,
+        "ollama": True,
+    }
+    for repository in repositories.values():
+        repository.healthcheck.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", [None, "embedder"])
+@pytest.mark.parametrize("failure", [None, "ollama"])
 async def test_resource_cleanup_on_success_and_partial_startup(failure):
     events = []
     container = resource_container(events, failure)
@@ -132,26 +147,26 @@ async def test_resource_cleanup_on_success_and_partial_startup(failure):
             async with container_lifespan(container):
                 pytest.fail("must not enter application")
         assert events == [
-            "start database",
+            "start postgresql",
             "start qdrant",
-            "start embedder",
-            "close embedder",
+            "start ollama",
+            "close ollama",
             "close qdrant",
-            "close database",
+            "close postgresql",
         ]
     else:
         async with container_lifespan(container):
-            first = await resolve(container.resources.databaseResource)
-            assert await resolve(container.resources.databaseResource) is first
+            first = await resolve(container.resources.postgresqlResource)
+            assert await resolve(container.resources.postgresqlResource) is first
             assert await resolve(
                 container.repositories.documentRepository
             ) is await resolve(container.repositories.documentRepository)
             await resolve(container.worker.dispatcher)
         assert events[-4:] == [
-            "close broker",
-            "close embedder",
+            "close rabbitmq",
+            "close ollama",
             "close qdrant",
-            "close database",
+            "close postgresql",
         ]
 
 
@@ -172,10 +187,10 @@ async def test_cancellation_releases_resources():
     with pytest.raises(asyncio.CancelledError):
         await task
     assert events[-4:] == [
-        "close broker",
-        "close embedder",
+        "close rabbitmq",
+        "close ollama",
         "close qdrant",
-        "close database",
+        "close postgresql",
     ]
 
 
@@ -227,8 +242,8 @@ async def test_http_and_mcp_share_async_provider_and_override_restores():
         for tool in tools:
             assert set(tool.input_schema.get("properties", {})) == expected[tool.name]
     assert events[-4:] == [
-        "close broker",
-        "close embedder",
+        "close rabbitmq",
+        "close ollama",
         "close qdrant",
-        "close database",
+        "close postgresql",
     ]

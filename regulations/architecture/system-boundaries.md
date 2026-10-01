@@ -9,7 +9,7 @@
 - 保持 `api → use_cases → services → repositories → resources`；Use Case 之间不互相调用。
 - LlamaIndex 作为各层实现工具，不设独立 LlamaIndex Container 或 integrations 目录。
 - 类按职责加 Service、Repository、UseCase、Handler 后缀；provider 和注入实例使用完整 camelCase 名，如 fileService、fileRepository、uploadFileUseCase。
-- containers/application.py 组装 Resources、Repositories、Services、UseCases、Worker 子容器。资源使用 Resource；无请求状态 Repository/Service/Handler 用 Singleton；UseCase 和自定义 Parser 用 Factory。健康探测 HTTP client 每次创建并关闭。
+- containers/application.py 组装 Resources、Repositories、Services、UseCases、Worker 子容器。Resource 按实际外部服务命名为 `postgresql`、`qdrant`、`ollama`、`rabbitmq`；无请求状态 Repository/Service/Handler 用 Singleton；UseCase 和自定义 Parser 用 Factory。健康检查不建立独立 Repository，由 Health Service 组合各服务 Repository 提供的 `healthcheck()`。
 - 业务类只使用普通构造注入，不导入 Depends、Provide 或 Container。HTTP 用 Depends(Provide)；MCP 显式解析同一组 UseCase provider；Worker Handler 只分派到 UseCase。
 - 生命周期依次启动数据库、Qdrant、Ollama、Broker，逆序关闭；先停止消费并等待回调结束，再关闭底层资源。退出重置单例；测试可 override provider。
 - 每个数据库操作持有自己的 session；跨进程文档锁用独立 NullPool engine，避免锁等待占满 CRUD 池。

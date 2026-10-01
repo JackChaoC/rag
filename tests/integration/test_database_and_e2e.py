@@ -12,8 +12,8 @@ from rag.config import Settings
 from rag.containers import create_container
 from rag.containers.resources import container_lifespan, resolve
 from rag.repositories.document_repository import DocumentRepository
-from rag.resources.database.client import DatabaseResource
-from rag.resources.database.models import DocumentRecord
+from rag.resources.postgresql.client import PostgreSQLResource
+from rag.resources.postgresql.models import DocumentRecord
 from rag.services.documents.types.document import Document, DocumentStatus, SourceType
 
 pytestmark = pytest.mark.integration
@@ -26,7 +26,7 @@ def require_services():
 
 async def test_database_constraints_and_document_lock():
     require_services()
-    database = DatabaseResource(Settings().database_url)
+    database = PostgreSQLResource(Settings().database_url)
     await database.connect()
     sessions = database.require_session_factory()
     repository = DocumentRepository(sessions, database.lockEngine)
@@ -75,7 +75,7 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
     container = create_container(settings)
     documentId = None
     async with container_lifespan(container):
-        broker = await resolve(container.resources.brokerResource)
+        broker = await resolve(container.resources.rabbitmqResource)
         dispatcher = await resolve(container.worker.dispatcher)
         failureHandler = await resolve(container.worker.failureHandler)
         await broker.consume(dispatcher.dispatch, failureHandler.handle)
@@ -149,16 +149,16 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
             qdrant = await resolve(container.resources.qdrantResource)
             if await qdrant.collection_exists(settings.qdrant_collection):
                 await qdrant.delete_collection(settings.qdrant_collection)
-            database = await resolve(container.resources.databaseResource)
+            database = await resolve(container.resources.postgresqlResource)
             if documentId:
                 async with database.require_session_factory().begin() as session:
                     await session.execute(
                         delete(DocumentRecord).where(DocumentRecord.id == documentId)
                     )
     # Reconnect solely to delete this run's explicitly named RabbitMQ topology.
-    from rag.resources.messaging.broker import RabbitBrokerResource
+    from rag.resources.rabbitmq.broker import RabbitMQResource
 
-    cleanupBroker = RabbitBrokerResource(
+    cleanupBroker = RabbitMQResource(
         settings.rabbitmq_url, (1, 1, 1), namespace=settings.rabbitmq_namespace
     )
     try:

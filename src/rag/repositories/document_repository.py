@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import select, text, update
 
-from rag.resources.database.models import DocumentRecord
+from rag.resources.postgresql.models import DocumentRecord
 from rag.services.documents.types.document import Document
 
 
@@ -11,6 +11,10 @@ class DocumentRepository:
     def __init__(self, sessions, lockEngine):
         self.sessions = sessions
         self.lockEngine = lockEngine
+
+    async def healthcheck(self) -> bool:
+        async with self.sessions() as session:
+            return bool(await session.scalar(text("SELECT TRUE")))
 
     @asynccontextmanager
     async def lock(self, documentId: UUID):

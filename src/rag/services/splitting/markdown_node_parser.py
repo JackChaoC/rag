@@ -1,14 +1,34 @@
 import re
+from collections.abc import Sequence
+from typing import Any
 from uuid import UUID, uuid5
 
 from llama_index.core.node_parser import NodeParser
-from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
+from llama_index.core.schema import (
+    BaseNode,
+    Document as LlamaIndexDocument,
+    NodeRelationship,
+    RelatedNodeInfo,
+    TextNode,
+)
 
 from rag.services.splitting.chunker import chunk_markdown
 
 
 class MarkdownNodeParser(NodeParser):
     max_chars: int = 1200
+
+    def get_nodes_from_documents(
+        self,
+        llamaindex_documents: Sequence[LlamaIndexDocument],
+        show_progress: bool = False,
+        **kwargs: Any,
+    ) -> list[BaseNode]:
+        return super().get_nodes_from_documents(
+            llamaindex_documents,
+            show_progress=show_progress,
+            **kwargs,
+        )
 
     def _parse_nodes(self, nodes, show_progress=False, **kwargs):
         output = []
