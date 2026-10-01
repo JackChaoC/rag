@@ -26,8 +26,14 @@ class Services(containers.DeclarativeContainer):
         EmbeddingService, embeddings=repositories.embeddings
     )
     vectors = providers.Singleton(VectorService, vectors=repositories.vectors)
-    index_tasks = providers.Singleton(IndexTaskService, tasks=repositories.index_tasks)
-    health = providers.Singleton(HealthService, health=repositories.health)
+    index_tasks = providers.Singleton(IndexTaskService, tasks=repositories.tasks)
+    health = providers.Singleton(
+        HealthService,
+        documents=repositories.documents,
+        tasks=repositories.tasks,
+        vectors=repositories.vectors,
+        embeddings=repositories.embeddings,
+    )
     vector_search = providers.Singleton(
         VectorSearch,
         embedder=embeddings,

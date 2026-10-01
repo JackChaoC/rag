@@ -3,16 +3,21 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from qdrant_client import AsyncQdrantClient, models
+from qdrant_client import models
 
+from rag.resources.qdrant.client import QdrantClient
 from rag.services.indexing.types.vector_record import VectorRecord
 from rag.services.retrieval.types.search_hit import SearchHit
 
 
 class VectorRepository:
-    def __init__(self, client: AsyncQdrantClient, collection: str) -> None:
+    def __init__(self, client: QdrantClient, collection: str) -> None:
         self._client = client
         self._collection = collection
+
+    async def healthcheck(self) -> bool:
+        await self._client.get_collections()
+        return True
 
     async def ensure_collection(self, dimension: int) -> None:
         if not await self._client.collection_exists(self._collection):

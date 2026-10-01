@@ -32,5 +32,8 @@ class OllamaEmbedder:
             raise RuntimeError("Ollama returned inconsistent embedding dimensions")
         return embeddings
 
+    async def healthcheck(self) -> bool:
+        return (await self._client.get("/api/tags", timeout=2)).is_success
+
     async def aclose(self) -> None:
         await self._client.aclose()

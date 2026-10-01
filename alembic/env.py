@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from rag.config import get_settings
-from rag.resources.database.client import sqlalchemy_url
-from rag.resources.database.models import Base
+from rag.resources.postgresql.client import sqlalchemy_url
+from rag.resources.postgresql.models import Base
 
 config = context.config
 if config.config_file_name:

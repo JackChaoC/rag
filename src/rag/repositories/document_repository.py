@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from rag.resources.database.models import ChunkRecord, DocumentRecord
+from rag.resources.postgresql.models import ChunkRecord, DocumentRecord
 from rag.services.documents.types.chunk import Chunk
 from rag.services.documents.types.document import Document, DocumentStatus
 
@@ -14,6 +14,10 @@ from rag.services.documents.types.document import Document, DocumentStatus
 class DocumentRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
+
+    async def healthcheck(self) -> bool:
+        async with self._sessions() as session:
+            return bool(await session.scalar(text("SELECT TRUE")))
 
     async def get(self, document_id: UUID) -> Document | None:
         async with self._sessions() as session:

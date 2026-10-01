@@ -3,13 +3,12 @@ import os
 from uuid import uuid4
 
 import pytest
-from qdrant_client import AsyncQdrantClient
-
 from rag.config import Settings
 from rag.repositories.vector_repository import VectorRepository
-from rag.resources.database.client import Database
-from rag.resources.embedding.ollama_embedder import OllamaEmbedder
-from rag.resources.messaging.broker import RabbitBroker
+from rag.resources.ollama.ollama_embedder import OllamaEmbedder
+from rag.resources.postgresql.client import Database
+from rag.resources.qdrant.client import QdrantClient
+from rag.resources.rabbitmq.broker import RabbitBroker
 from rag.services.indexing.types.message import IndexMessage, IndexOperation
 
 pytestmark = pytest.mark.integration
@@ -22,7 +21,7 @@ async def test_postgres_rabbit_qdrant_and_real_ollama() -> None:
     settings = Settings()
     database = Database(settings.database_url)
     broker = RabbitBroker(settings.rabbitmq_url, settings.rabbitmq_retry_delays)
-    qdrant = AsyncQdrantClient(url=settings.qdrant_url)
+    qdrant = QdrantClient(url=settings.qdrant_url)
     embedder = OllamaEmbedder(
         settings.ollama_url, settings.embedding_model, num_gpu=settings.ollama_num_gpu
     )

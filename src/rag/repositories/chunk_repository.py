@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from rag.resources.database.models import ChunkRecord, DocumentRecord
+from rag.resources.postgresql.models import ChunkRecord, DocumentRecord
 from rag.services.documents.types.chunk import Chunk
 from rag.services.documents.types.document import DocumentStatus
 from rag.services.documents.types.hydrated_chunk import HydratedChunk

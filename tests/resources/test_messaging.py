@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from rag.resources.messaging.broker import RabbitBroker
+from rag.resources.rabbitmq.broker import RabbitBroker
 from rag.services.indexing.types.message import IndexMessage, IndexOperation
 
 

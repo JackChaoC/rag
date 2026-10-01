@@ -15,8 +15,8 @@ from rag.repositories.chunk_repository import ChunkRepository
 from rag.repositories.document_repository import (
     DocumentRepository,
 )
-from rag.resources.database.client import Database
-from rag.resources.database.models import ChunkRecord, DocumentRecord
+from rag.resources.postgresql.client import Database
+from rag.resources.postgresql.models import ChunkRecord, DocumentRecord
 from rag.services.documents.types.chunk import Chunk
 from rag.services.documents.types.document import (
     Document,
@@ -110,7 +110,7 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
         dispatcher = await resolve(container.worker.dispatcher)
         failure_handler = await resolve(container.worker.failure_handler)
         rebuild_handler = await resolve(container.worker.rebuild_handler)
-        broker = await resolve(container.resources.broker)
+        broker = await resolve(container.resources.rabbitmq)
         await broker.consume(dispatcher.dispatch, failure_handler.handle)
         source_uri = f"e2e-{uuid4()}.pdf"
         document_id = None
@@ -193,7 +193,7 @@ async def test_pdf_to_postgres_rabbit_ollama_qdrant_search_rebuild_and_delete() 
         finally:
             if document_id is not None:
                 sessions = (
-                    await resolve(container.resources.database)
+                    await resolve(container.resources.postgresql)
                 ).require_session_factory()
                 async with sessions.begin() as session:
                     await session.execute(

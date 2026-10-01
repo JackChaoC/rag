@@ -1,13 +1,12 @@
 from contextlib import AsyncExitStack, asynccontextmanager
 from inspect import isawaitable
 
-import httpx
 from dependency_injector import containers, providers
-from qdrant_client import AsyncQdrantClient
 
-from rag.resources.database.client import Database
-from rag.resources.embedding.ollama_embedder import OllamaEmbedder
-from rag.resources.messaging.broker import RabbitBroker
+from rag.resources.ollama.ollama_embedder import OllamaEmbedder
+from rag.resources.postgresql.client import Database
+from rag.resources.qdrant.client import QdrantClient
+from rag.resources.rabbitmq.broker import RabbitBroker
 
 
 async def resolve[T](provider: providers.Provider[T]) -> T:
@@ -17,28 +16,28 @@ async def resolve[T](provider: providers.Provider[T]) -> T:
 
 
 @asynccontextmanager
-async def database_resource(url: str):
-    database = Database(url)
+async def postgresql_resource(url: str):
+    postgresql = Database(url)
     try:
-        await database.connect()
-        yield database
+        await postgresql.connect()
+        yield postgresql
     finally:
-        await database.close()
+        await postgresql.close()
 
 
 @asynccontextmanager
-async def broker_resource(url: str, retry_delays: tuple[int, int, int], prefetch: int):
-    broker = RabbitBroker(url, retry_delays, prefetch)
+async def rabbitmq_resource(url: str, retry_delays: tuple[int, int, int], prefetch: int):
+    rabbitmq = RabbitBroker(url, retry_delays, prefetch)
     try:
-        await broker.connect()
-        yield broker
+        await rabbitmq.connect()
+        yield rabbitmq
     finally:
-        await broker.close()
+        await rabbitmq.close()
 
 
 @asynccontextmanager
 async def qdrant_resource(url: str):
-    client = AsyncQdrantClient(url=url)
+    client = QdrantClient(url=url)
     try:
         yield client
     finally:
@@ -46,35 +45,29 @@ async def qdrant_resource(url: str):
 
 
 @asynccontextmanager
-async def embedder_resource(url: str, model: str, num_gpu: int):
-    embedder = OllamaEmbedder(url, model, num_gpu=num_gpu)
+async def ollama_resource(url: str, model: str, num_gpu: int):
+    ollama = OllamaEmbedder(url, model, num_gpu=num_gpu)
     try:
-        yield embedder
+        yield ollama
     finally:
-        await embedder.aclose()
+        await ollama.aclose()
 
 
 class Resources(containers.DeclarativeContainer):
     config = providers.Configuration()
-    database = providers.Resource(database_resource, config.database_url)
-    broker = providers.Resource(
-        broker_resource,
+    postgresql = providers.Resource(postgresql_resource, config.database_url)
+    rabbitmq = providers.Resource(
+        rabbitmq_resource,
         config.rabbitmq_url,
         config.rabbitmq_retry_delays,
         config.rabbitmq_prefetch,
     )
     qdrant = providers.Resource(qdrant_resource, config.qdrant_url)
-    embedder = providers.Resource(
-        embedder_resource,
+    ollama = providers.Resource(
+        ollama_resource,
         config.ollama_url,
         config.embedding_model,
         config.ollama_num_gpu,
-    )
-    # Each health probe closes its own client.
-    health_http_client = providers.Factory(
-        httpx.AsyncClient,
-        base_url=config.ollama_url,
-        timeout=2,
     )
 
 
@@ -87,10 +80,10 @@ async def container_lifespan(container):
         # A restarted lifespan must resolve dependencies against fresh clients.
         stack.callback(container.reset_singletons)
         for provider in (
-            container.resources.database,
+            container.resources.postgresql,
             container.resources.qdrant,
-            container.resources.embedder,
-            container.resources.broker,
+            container.resources.ollama,
+            container.resources.rabbitmq,
         ):
             stack.push_async_callback(_shutdown, provider)
             await resolve(provider)
