@@ -38,6 +38,10 @@ Defaults isolate the branch:
 Console: http://127.0.0.1:8000/ui/ · Swagger: http://127.0.0.1:8000/docs ·
 MCP: http://127.0.0.1:8000/mcp
 
+Use `uv run rag expose=true` to listen on `0.0.0.0:8000` for LAN access.
+The default (`uv run rag` or `uv run rag expose=false`) listens only on localhost.
+This exposes HTTP APIs, MCP and the UI together; configure authentication and network access controls before sharing sensitive data.
+
 ## Architecture
 
 Business classes use explicit constructor injection and suffixes such as

@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 
 import uvicorn
@@ -12,9 +13,16 @@ def selector_loop_factory() -> asyncio.AbstractEventLoop:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Start the RAG HTTP/MCP server.")
+    parser.add_argument(
+        "expose", nargs="?", default="expose=false",
+        choices=("expose=true", "expose=false"),
+        help="Listen on all network interfaces when expose=true (default: expose=false).",
+    )
+    args = parser.parse_args()
     uvicorn.run(
         "rag.main:app",
-        host="127.0.0.1",
+        host="0.0.0.0" if args.expose == "expose=true" else "127.0.0.1",
         port=8000,
         reload=False,
         loop="rag.main:selector_loop_factory",
