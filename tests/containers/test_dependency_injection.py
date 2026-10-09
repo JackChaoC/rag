@@ -110,6 +110,7 @@ async def test_health_service_uses_each_service_repository_healthcheck():
             "embeddingRepository",
         )
     }
+    repositories["taskRepository"].worker_healthcheck = AsyncMock(return_value=True)
     with (
         container.repositories.documentRepository.override(
             providers.Object(repositories["documentRepository"])
@@ -132,7 +133,9 @@ async def test_health_service_uses_each_service_repository_healthcheck():
         "rabbitmq": True,
         "qdrant": True,
         "ollama": True,
+        "worker": True,
     }
+    repositories["taskRepository"].worker_healthcheck.assert_awaited_once()
     for repository in repositories.values():
         repository.healthcheck.assert_awaited_once()
 

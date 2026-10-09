@@ -56,6 +56,11 @@ class RabbitMQResource:
             durable=True,
             arguments={"x-dead-letter-exchange": f"{self.namespace}.dlx"},
         )
+        await self.channel.declare_queue(
+            f"{self.namespace}.worker-heartbeat",
+            durable=False,
+            arguments={"x-message-ttl": 30000, "x-max-length": 1},
+        )
         for key in ("document.ingest", "document.reindex", "document.delete"):
             await self.main_queue.bind(self.main_exchange, key)
         for index in range(1, 4):
@@ -141,6 +146,29 @@ class RabbitMQResource:
                 self._active_callbacks.discard(task)
 
         self._consumer_tag = await self.main_queue.consume(callback, no_ack=False)
+
+    async def publish_worker_heartbeat(self) -> None:
+        if self.channel is None or self._consumer_tag is None:
+            raise RuntimeError("Worker consumer is not running")
+        await self.channel.default_exchange.publish(
+            Message(b"alive"),
+            routing_key=f"{self.namespace}.worker-heartbeat",
+            mandatory=True,
+        )
+
+    async def worker_healthcheck(self) -> bool:
+        if self.channel is None:
+            return False
+        heartbeat = await self.channel.declare_queue(
+            f"{self.namespace}.worker-heartbeat", passive=True
+        )
+        jobs = await self.channel.declare_queue(
+            f"{self.namespace}.jobs", passive=True
+        )
+        return bool(
+            heartbeat.declaration_result.message_count
+            and jobs.declaration_result.consumer_count
+        )
 
     async def ping(self) -> bool:
         return bool(self.connection and not self.connection.is_closed)

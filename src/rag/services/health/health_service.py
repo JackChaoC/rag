@@ -27,8 +27,9 @@ class HealthService:
             self._check(self.taskRepository.healthcheck),
             self._check(self.vectorRepository.healthcheck),
             self._check(self.embeddingRepository.healthcheck),
+            self._check(self.taskRepository.worker_healthcheck),
         )
-        checks = dict(zip(("postgresql", "rabbitmq", "qdrant", "ollama"), results))
+        checks = dict(zip(("postgresql", "rabbitmq", "qdrant", "ollama", "worker"), results))
         return HealthStatus(ready=all(checks.values()), dependencies=checks)
 
     @staticmethod

@@ -16,7 +16,7 @@
 - `GET /v1/chunks/{chunk_id}`：按 Chunk ID 返回全量内容与来源。
 - `GET /v1/documents/{document_id}/chunks/{chunk_id}`：只在 Chunk 属于指定 Document 时返回内容与引用信息。
 - `POST /v1/search`：接收 `query` 和 `top_k`，返回 Dense 检索结果，不调用 LLM。
-- `GET /health`：分别报告进程存活和 PostgreSQL、RabbitMQ、Qdrant、Ollama 的依赖状态；依赖失败时不得仍报告整体 ready。
+- `GET /health`：分别报告进程存活和 PostgreSQL、RabbitMQ、Qdrant、Ollama 的依赖状态及 worker 消费者/心跳状态；依赖失败时不得仍报告整体 ready。
 
 文档写入响应至少包含 `document_id`、`version`、`status`；搜索结果至少包含 `chunk_id`、`document_id`、`score`、`content`、`source_uri`、`title`、`start_line`、`end_line` 和 `metadata`。`top_k` 默认 `5`，HTTP、MCP 和核心检索统一允许 `1..10`。不存在返回 `404`，输入或文件类型不支持返回 `422`，消息未确认或依赖不可用返回 `503`。所有错误使用稳定的 `{ "code": string, "message": string }` 结构。
 

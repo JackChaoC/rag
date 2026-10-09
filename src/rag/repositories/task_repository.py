@@ -11,3 +11,6 @@ class TaskRepository:
 
     async def healthcheck(self) -> bool:
         return await self.rabbitmqResource.ping()
+
+    async def worker_healthcheck(self) -> bool:
+        return await self.rabbitmqResource.worker_healthcheck()

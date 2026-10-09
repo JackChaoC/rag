@@ -25,3 +25,9 @@
 - document.ingest / document.reindex / document.delete 分别对应独立 DocumentIngestHandler / DocumentReindexHandler / DocumentDeleteHandler；不相互继承。
 - Ingest/Reindex Handler 复用 IndexDocumentUseCase，而不是共用一个 handler。
 - Dispatcher 验证 routing_key 与 operation 一致；ACK、重试、死信仍归 Broker。
+
+## Worker 健康检查
+
+- 注册消费者后每 10 秒向同 namespace 的 worker-heartbeat 队列发送心跳；RabbitMQ TTL 为 30 秒，最多保留一条。
+- `/health` 的 `dependencies.worker` 同时要求有效心跳和 jobs 队列至少一个消费者，否则整体 ready=false，返回 503。
+- 多 worker 时检查至少一个存活消费者，不表示每个 worker 或单条任务均健康；心跳发送失败退出 worker。

@@ -14,7 +14,10 @@ async def run() -> None:
         dispatcher = await resolve(container.worker.dispatcher)
         failureHandler = await resolve(container.worker.failureHandler)
         await broker.consume(dispatcher.dispatch, failureHandler.handle)
-        await asyncio.Future()
+        # Start only after consumer registration; failure exits the worker.
+        while True:
+            await broker.publish_worker_heartbeat()
+            await asyncio.sleep(10)
 
 
 def main() -> None:
