@@ -23,7 +23,7 @@ def main() -> None:
     uvicorn.run(
         "rag.main:app",
         host="0.0.0.0" if args.expose == "expose=true" else "127.0.0.1",
-        port=8000,
+        port=8123,
         reload=False,
         loop="rag.main:selector_loop_factory",
     )

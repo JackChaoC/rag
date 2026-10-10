@@ -35,10 +35,10 @@ Defaults isolate the branch:
 - Files: `statics/<document UUID>/<version>.<extension>`; not publicly mounted.
   API and worker must share this directory.
 
-Console: http://127.0.0.1:8000/ui/ · Swagger: http://127.0.0.1:8000/docs ·
-MCP: http://127.0.0.1:8000/mcp
+Console: http://127.0.0.1:8123/ui/ · Swagger: http://127.0.0.1:8123/docs ·
+MCP: http://127.0.0.1:8123/mcp
 
-Use `uv run rag expose=true` to listen on `0.0.0.0:8000` for LAN access.
+Use `uv run rag expose=true` to listen on `0.0.0.0:8123` for LAN access.
 The default (`uv run rag` or `uv run rag expose=false`) listens only on localhost.
 This exposes HTTP APIs, MCP and the UI together; configure authentication and network access controls before sharing sensitive data.
 

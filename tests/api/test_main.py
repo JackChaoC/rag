@@ -13,7 +13,7 @@ def test_listen_address(args, host):
     with patch("sys.argv", ["rag", *args]), patch("rag.main.uvicorn.run") as run:
         main()
     assert run.call_args.kwargs["host"] == host
-    assert run.call_args.kwargs["port"] == 8000
+    assert run.call_args.kwargs["port"] == 8123
 
 
 def test_invalid_expose_does_not_start_server():

@@ -28,9 +28,9 @@
   <div id="toast" role="status"></div>
   <template id="top-k-contract"><input type="number" min="1" max="10"></template>
   <script>
-    // The local console is served by the RAG API on port 8000.
-    if (["127.0.0.1", "localhost", "[::1]"].includes(location.hostname) && location.port !== "8000") {
-      location.replace(`http://127.0.0.1:8000/ui/${location.search}${location.hash}`);
+    // The local console is served by the RAG API on port 8123.
+    if (["127.0.0.1", "localhost", "[::1]"].includes(location.hostname) && location.port !== "8123") {
+      location.replace(`http://127.0.0.1:8123/ui/${location.search}${location.hash}`);
     } else {
       const script = document.createElement("script");
       script.src = "/ui/app.js";
