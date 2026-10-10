@@ -24,3 +24,5 @@
 - 两种 GET 分别由 ListDocumentChunksUseCase 和 GetChunkDetailUseCase 提供，不计算 Embedding。
 - VectorQueryService.query(text, top_k=5)：由官方 VectorStoreIndex Retriever 生成查询向量并取 Top-K。允许范围 1..10，保持 Qdrant 分数/排名，不做 PG 验证、回填、max_candidates 或 over-fetch。
 - 不提供 Metadata Filter、Sparse、Hybrid、Reranker 或答案生成。
+
+- Ollama 请求不传 num_gpu，由 Ollama 自动选择设备；keep_alive 为 5m。

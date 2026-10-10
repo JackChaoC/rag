@@ -31,3 +31,5 @@
 - 注册消费者后每 10 秒向同 namespace 的 worker-heartbeat 队列发送心跳；RabbitMQ TTL 为 30 秒，最多保留一条。
 - `/health` 的 `dependencies.worker` 同时要求有效心跳和 jobs 队列至少一个消费者，否则整体 ready=false，返回 503。
 - 多 worker 时检查至少一个存活消费者，不表示每个 worker 或单条任务均健康；心跳发送失败退出 worker。
+
+- 可重试索引失败保持 pending 并保留异常类型和详情；只有重试耗尽才标记 failed。

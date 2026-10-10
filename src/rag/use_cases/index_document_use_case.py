@@ -56,6 +56,7 @@ class IndexDocumentUseCase:
                 await self.documentService.set_status(document.id, DocumentStatus.READY)
             except Exception as exc:
                 await self.documentService.set_status(
-                    document.id, DocumentStatus.FAILED, error=str(exc)[:4000]
+                    document.id, DocumentStatus.PENDING,
+                    error=f"{type(exc).__name__}: {exc}"[:4000]
                 )
                 raise

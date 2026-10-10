@@ -47,8 +47,8 @@ async def qdrant_resource(url: str):
 
 
 @asynccontextmanager
-async def ollama_resource(url: str, model: str, num_gpu: int):
-    ollamaResource = OllamaResource(url, model, num_gpu)
+async def ollama_resource(url: str, model: str):
+    ollamaResource = OllamaResource(url, model)
     try:
         yield ollamaResource
     finally:
@@ -70,7 +70,6 @@ class Resources(containers.DeclarativeContainer):
         ollama_resource,
         config.ollama_url,
         config.embedding_model,
-        config.ollama_num_gpu,
     )
 
 

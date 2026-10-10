@@ -85,7 +85,7 @@ async def test_terminal_failure_cleans_nodes_and_records_error(appContainer):
     )
     document = await appContainer.services.documentService().get(message.document_id)
     assert document.status is DocumentStatus.FAILED
-    assert document.last_error == "ollama down"
+    assert document.last_error == "RuntimeError: ollama down"
     assert (
         await appContainer.services.chunkLookupService().listChunks(document.id) == []
     )
@@ -147,4 +147,4 @@ async def test_failed_delete_is_not_resurrected_by_delayed_ingest(appContainer):
     await appContainer.worker.dispatcher().dispatch("document.ingest", message)
     document = await appContainer.services.documentService().get(message.document_id)
     assert document.status is DocumentStatus.DELETING
-    assert document.last_error == "delete failed"
+    assert document.last_error == "RuntimeError: delete failed"

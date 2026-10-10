@@ -28,5 +28,5 @@ class FinalizeIndexFailureUseCase:
                 else DocumentStatus.FAILED
             )
             await self.documentService.set_status(
-                document.id, status, error=str(error)[:4000]
+                document.id, status, error=f"{type(error).__name__}: {error}"[:4000]
             )

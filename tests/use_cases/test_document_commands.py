@@ -102,6 +102,8 @@ async def test_bad_pdf_is_accepted_as_file_but_fails_in_worker(appContainer):
     with pytest.raises(Exception):
         await appContainer.worker.dispatcher().dispatch("document.ingest", message)
     document = await appContainer.services.documentService().get(result.document_id)
+    assert document.status is DocumentStatus.PENDING
+    await appContainer.worker.failureHandler().handle(message, RuntimeError("invalid PDF"))
     assert document.status is DocumentStatus.FAILED
     assert document.last_error
     assert (

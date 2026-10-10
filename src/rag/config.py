@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://127.0.0.1:6333"
     ollama_url: str = "http://127.0.0.1:11434"
     embedding_model: str = "qwen3-embedding:8b"
-    ollama_num_gpu: int = Field(default=0, ge=0)
     qdrant_collection: str = "rag_llama_index_nodes"
     storage_path: str = "statics"
     rabbitmq_namespace: str = "rag.llama-index.indexing"

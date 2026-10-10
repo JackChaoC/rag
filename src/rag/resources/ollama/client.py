@@ -2,11 +2,11 @@ from llama_index.embeddings.ollama import OllamaEmbedding
 
 
 class OllamaResource(OllamaEmbedding):
-    def __init__(self, url: str, model: str, num_gpu: int) -> None:
+    def __init__(self, url: str, model: str) -> None:
         super().__init__(
             model_name=model,
             base_url=url,
-            ollama_additional_kwargs={"num_gpu": num_gpu},
+            keep_alive="5m",
             client_kwargs={"timeout": 120},
         )
 
