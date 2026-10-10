@@ -35,6 +35,14 @@ class MemoryDocumentRepository:
                      for value in (d.title, d.project, d.operator,
                                    d.team.value if d.team else None, d.id)))]
 
+    async def query(self, page=1, **filters):
+        records = [d for d in self.documents.values() if all(
+            getattr(d, key) == value if key in {"team", "status"} else
+            value.casefold() in str(getattr(d, "id" if key == "document_id" else key) or "").casefold()
+            for key, value in filters.items()
+        )]
+        return records[(page - 1) * 20:page * 20], len(records)
+
     async def create(self, document):
         self.documents[document.id] = document
 

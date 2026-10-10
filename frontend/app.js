@@ -10,13 +10,62 @@ function active(name,label,parent="控制台"){document.querySelectorAll("nav a"
 function head(title,desc,actions=""){return `<div class="pagehead"><div><h1>${esc(title)}</h1><p>${esc(desc)}</p></div>${actions?`<div class="actions">${actions}</div>`:""}</div>`}
 function badge(s){const m={ready:"已索引",pending:"待处理",indexing:"索引中",failed:"处理失败",deleting:"删除中",deleted:"已删除"};return `<span class="badge ${esc(s)}">${esc(m[s]||s)}</span>`}
 async function health(){try{const r=await fetch("/health");state.health=await r.json();const ok=!!state.health.ready;$("#side-health").innerHTML=`<span class="dot ${ok?"ok":"bad"}"></span>${ok?"服务运行中":"服务异常"}`;$("#top-health").innerHTML=`<span class="dot ${ok?"ok":"bad"}"></span>${ok?"全部依赖正常":"存在异常依赖"}`}catch{state.health=null;$("#side-health").innerHTML='<span class="dot bad"></span>API 不可用';$("#top-health").innerHTML='<span class="dot bad"></span>连接失败'}drawHealth()}
-let documentRequest=0;
-async function docs(){const params=new URLSearchParams();for(const [key,id] of [["q","filter"],["team","query-team"],["status","status"],["project","query-project"],["operator","query-operator"]]){const value=$("#"+id)?.value.trim();if(value)params.set(key,value)}const sequence=++documentRequest,result=await request("/v1/documents"+(params.size?"?"+params:""));if(sequence===documentRequest)state.documents=result;return state.documents}
+async function docs(){state.documents=await request('/v1/documents');return state.documents}
 
-function documentsPage(){active("documents","文档");app.innerHTML=head("文档","管理已录入的文档，查看索引状态并执行更新、重建或删除。",'<a class="btn" href="#/documents/new"><i class="ph ph-plus"></i>录入文档</a>')+`<section id="stats" class="stats"></section><section class="panel"><div class="body"><div class="toolbar"><div class="searchinput"><i class="ph ph-magnifying-glass"></i><input id="filter" type="search" aria-label="文档关键词" placeholder="搜索标题、项目、操作人或 ID"></div><select id="query-team" aria-label="团队"><option value="">全部团队</option>${teams.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input id="query-project" aria-label="项目筛选" placeholder="项目（精确匹配）"><input id="query-operator" aria-label="操作人筛选" placeholder="操作人（精确匹配）"><select id="status" aria-label="状态"><option value="">全部状态</option><option value="ready">已索引</option><option value="pending">待处理</option><option value="indexing">索引中</option><option value="failed">处理失败</option><option value="deleting">删除中</option><option value="deleted">已删除</option></select><button id="refresh" class="btn secondary"><i class="ph ph-arrows-clockwise"></i>刷新</button></div><div class="tablewrap"><table><thead><tr><th>文档标题 / 项目</th><th>ID</th><th>版本</th><th>状态</th><th>Metadata</th><th>操作</th></tr></thead><tbody id="rows"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody></table></div></div></section>`;
- const draw=()=>{if(!$("#rows"))return;const items=state.documents,counts=state.documents.reduce((a,d)=>(a[d.status]=(a[d.status]||0)+1,a),{});$("#stats").innerHTML=[["查询结果",state.documents.length,"files"],["已索引",counts.ready||0,"check-circle"],["处理中",(counts.pending||0)+(counts.indexing||0),"clock-countdown"],["处理失败",counts.failed||0,"warning-circle"]].map(x=>`<div class="stat"><span>${x[0]}<i class="ph ph-${x[2]}"></i></span><strong>${x[1]}</strong></div>`).join("");$("#rows").innerHTML=items.length?items.map(d=>`<tr><td><span class="title">${esc(d.title||"未命名文档")}</span><span class="source">${esc(d.project||"—")} · ${esc(d.team||"—")}</span></td><td class="mono" title="${esc(d.document_id)}">${esc(short(d.document_id))}</td><td>v${d.version}</td><td>${badge(d.status)}</td><td class="mono">${Object.keys(d.metadata||{}).length?Object.keys(d.metadata).length+" fields":"—"}</td><td><div class="rowactions"><a class="rowbtn" href="#/documents/${encodeURIComponent(d.document_id)}">详情 / 更新</a>${fileActions(d.file_url)}<button class="rowbtn rebuild" data-id="${esc(d.document_id)}">重建</button><button class="rowbtn danger delete" data-id="${esc(d.document_id)}">删除</button></div></td></tr>`).join(""):'<tr><td colspan="6"><div class="empty"><i class="ph ph-files"></i>没有符合条件的文档</div></td></tr>'};
- const refresh=async b=>run(b,async()=>{await docs();draw();schedule(draw)});let queryTimer;const query=()=>{clearTimeout(queryTimer);queryTimer=setTimeout(()=>{if($("#filter"))refresh(null).catch(()=>{})},300)};for(const id of ["filter","query-project","query-operator"])$("#"+id).oninput=query;for(const id of ["status","query-team"])$("#"+id).onchange=()=>{clearTimeout(queryTimer);refresh(null).catch(()=>{})};$("#refresh").onclick=e=>refresh(e.currentTarget);$("#rows").onclick=async e=>{const b=e.target.closest("button[data-id]");if(!b)return;if(b.classList.contains("rebuild"))await run(b,async()=>{const r=await request(`/v1/documents/${encodeURIComponent(b.dataset.id)}/reindex`,{method:"POST"});toast(`已提交重建，目标版本 v${r.version}`);await docs();draw()});if(b.classList.contains("delete")&&confirm(`确认删除文档 ${b.dataset.id}？此操作会同时清除索引。`))await run(b,async()=>{await request(`/v1/documents/${encodeURIComponent(b.dataset.id)}`,{method:"DELETE"});toast("已提交删除任务");await docs();draw()})};docs().then(()=>{draw();schedule(draw)}).catch(e=>{$("#rows").innerHTML='<tr><td colspan="6" class="empty">文档加载失败</td></tr>';toast(e.message,false)})}
-function schedule(draw){clearTimeout(state.timer);if(state.documents.some(d=>["pending","indexing","deleting"].includes(d.status)))state.timer=setTimeout(async()=>{try{await docs();draw();schedule(draw)}catch{}},3000)}
+function documentsPage(){
+ active('documents','文档');
+ app.innerHTML=head('文档','查找团队知识，查看原文件与索引状态。','<a class="btn" href="#/documents/new">录入文档</a>')+`
+ <section class="panel document-filters"><form id="document-query">
+ <div class="query-heading"><strong>筛选文档</strong><span>按条件组合查询</span></div>
+ <div class="query-grid">
+ <label>Title<input name="title" placeholder="输入文档标题" autocomplete="off"></label>
+ <label>Team<select name="team"><option value="">全部团队</option>${teams.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></label>
+ <label>Project<input name="project" placeholder="输入项目名称" autocomplete="off"></label>
+ <label>ID<input name="document_id" placeholder="输入完整或部分文档 ID" autocomplete="off"></label>
+ <label>操作人<input name="operator" placeholder="输入操作人" autocomplete="off"></label>
+ <label>状态<select name="status"><option value="">全部状态</option>${['ready','pending','indexing','failed','deleting','deleted'].map(s=>`<option value="${s}">${({ready:'已索引',pending:'待处理',indexing:'索引中',failed:'处理失败',deleting:'删除中',deleted:'已删除'})[s]}</option>`).join('')}</select></label>
+ </div><div class="query-footer"><span>支持组合筛选，点击查询或按 Enter 更新结果。</span><div class="actions"><button type="reset" class="btn secondary">重置</button><button class="btn" type="submit">查询</button></div></div>
+ </form></section>
+ <section class="panel" id="document-results"><div class="document-tablehead"><div><strong>文档列表</strong><span id="document-total"></span></div><button class="rowbtn" id="document-refresh">刷新</button></div>
+ <div class="tablewrap"><table class="document-table"><colgroup><col style="width:48px"><col style="width:230px"><col style="width:88px"><col style="width:76px"><col style="width:140px"><col style="width:170px"><col style="width:54px"><col style="width:90px"><col style="width:180px"></colgroup>
+ <thead><tr><th>序号</th><th>Title</th><th>ID</th><th>Team</th><th>Project</th><th>Description</th><th>版本</th><th>状态</th><th>操作</th></tr></thead><tbody id="document-rows"></tbody></table></div>
+ <div class="document-pagination"><span id="document-range" aria-live="polite"></span><div id="document-pages" class="document-pages"></div></div></section>`;
+ const form=$('#document-query'),rows=$('#document-rows'),pager=$('#document-pages');
+ let filters={},page=1,sequence=0,controller;
+ const current=()=>$('#document-query')===form;
+ const draw=result=>{
+  const start=(result.page-1)*20,pages=Math.max(1,Math.ceil(result.total/20));
+  $('#document-total').textContent=`共 ${result.total} 份`;
+  rows.innerHTML=result.items.length?result.items.map((d,i)=>{
+   const chars=Array.from(d.description||''),description=chars.length>20?chars.slice(0,20).join('')+'…':chars.join('');
+   return `<tr><td>${start+i+1}</td><td title="${esc(d.title)}"><span class="title">${esc(d.title)}</span></td><td class="mono" title="${esc(d.document_id)}">${esc(short(d.document_id))}</td><td>${esc(d.team||'—')}</td><td title="${esc(d.project)}">${esc(d.project||'—')}</td><td class="document-description" title="${esc(d.description)}">${esc(description||'—')}</td><td class="mono">v${d.version}</td><td>${badge(d.status)}</td><td class="document-actions"><div class="rowactions"><a class="rowbtn" href="#/documents/${encodeURIComponent(d.document_id)}">查看</a><a class="rowbtn" href="${esc(d.file_url)}?download=true" download>下载</a><details><summary>更多</summary><div class="document-menu"><a class="rowbtn" href="${esc(d.file_url)}" target="_blank" rel="noopener">查看原文件</a><button class="rowbtn" data-action="rebuild" data-id="${esc(d.document_id)}" ${['deleting','deleted'].includes(d.status)?'disabled':''}>重建</button><button class="rowbtn danger" data-action="delete" data-id="${esc(d.document_id)}" ${['deleting','deleted'].includes(d.status)?'disabled':''}>删除</button></div></details></div></td></tr>`;
+  }).join(''):'<tr><td colspan="9" class="empty">没有符合条件的文档，请调整筛选条件。</td></tr>';
+  $('#document-range').textContent=result.total?`显示 ${start+1}–${start+result.items.length} 条，共 ${result.total} 条`:'共 0 条';
+  const numbers=[...new Set([1,...Array.from({length:5},(_,i)=>page-2+i).filter(n=>n>1&&n<pages),pages])].sort((a,b)=>a-b);
+  pager.innerHTML='<span>20 条 / 页</span>'+`<button class="page-button" data-page="${page-1}" ${page===1?'disabled':''}>上一页</button>`+numbers.map((n,i)=>`${i&&n-numbers[i-1]>1?'<span>…</span>':''}<button class="page-button ${n===page?'selected':''}" aria-label="第 ${n} 页" ${n===page?'aria-current="page"':''} data-page="${n}">${n}</button>`).join('')+`<button class="page-button" data-page="${page+1}" ${page>=pages?'disabled':''}>下一页</button>`;
+ };
+ const load=async()=>{
+  clearTimeout(state.timer);controller?.abort();controller=new AbortController();const turn=++sequence;
+  $('#document-results').setAttribute('aria-busy','true');
+  rows.innerHTML='<tr><td colspan="9" class="empty">加载中…</td></tr>';pager.innerHTML='';$('#document-range').textContent='';
+  try{
+   const result=await request('/v1/documents/query?'+new URLSearchParams({...filters,page}),{signal:controller.signal});
+   if(!current()||turn!==sequence)return;
+   const last=Math.max(1,Math.ceil(result.total/20));if(page>last){page=last;return await load()}
+   draw(result);
+   if(result.items.some(d=>['pending','indexing','deleting'].includes(d.status)))state.timer=setTimeout(()=>{if(current())load()},3000);
+  }catch(e){if(e.name==='AbortError'||!current()||turn!==sequence)return;rows.innerHTML='<tr><td colspan="9" class="empty">查询失败，请点击刷新重试。</td></tr>';$('#document-total').textContent='';toast(e.message,false)}
+  finally{if(current()&&turn===sequence)$('#document-results').setAttribute('aria-busy','false')}
+ };
+ form.onsubmit=e=>{e.preventDefault();filters=Object.fromEntries([...new FormData(form)].map(([k,v])=>[k,v.trim()]).filter(([,v])=>v));page=1;load()};
+ form.onreset=()=>{filters={};page=1;load()};
+ $('#document-refresh').onclick=()=>load();
+ pager.onclick=e=>{const b=e.target.closest('[data-page]');if(b&&!b.disabled){page=Number(b.dataset.page);load()}};
+ rows.addEventListener('toggle',e=>{const details=e.target;if(details.tagName!=='DETAILS'||!details.open)return;rows.querySelectorAll('details[open]').forEach(other=>{if(other!==details)other.open=false});const box=details.querySelector('summary').getBoundingClientRect(),menu=details.querySelector('.document-menu');menu.style.left=Math.max(8,Math.min(box.right-120,innerWidth-128))+'px';menu.style.top=Math.max(8,box.top-menu.offsetHeight-8)+'px'},true);
+ $('.tablewrap',$('#document-results')).onscroll=()=>rows.querySelectorAll('details[open]').forEach(d=>d.open=false);
+ rows.onclick=async e=>{const b=e.target.closest('button[data-action]');if(!b||b.disabled)return;const deleting=b.dataset.action==='delete';if(deleting&&!confirm(`确认删除文档 ${b.dataset.id}？此操作会同时清除索引。`))return;try{await run(b,async()=>{await request(`/v1/documents/${encodeURIComponent(b.dataset.id)}${deleting?'':'/reindex'}`,{method:deleting?'DELETE':'POST'});toast(deleting?'已提交删除任务':'已提交重建任务')});if(current())await load()}catch{}};
+ load();
+}
 
 const teams=["wallet","member","devops","data","event"];
 const jsonPost=body=>({method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});

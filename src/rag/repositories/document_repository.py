@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from sqlalchemy import String, cast, or_, select, text, update
+from sqlalchemy import String, cast, func, or_, select, text, update
 
 from rag.resources.postgresql.models import DocumentRecord
 from rag.services.documents.types.document import Document
@@ -55,6 +55,27 @@ class DocumentRepository:
         async with self.sessions() as session:
             records = await session.scalars(statement)
             return [_document(record) for record in records]
+
+    async def query(self, page=1, title=None, document_id=None, team=None,
+                    project=None, operator=None, status=None):
+        statement = select(DocumentRecord)
+        for column, value in ((DocumentRecord.title, title),
+                              (cast(DocumentRecord.id, String), document_id),
+                              (DocumentRecord.project, project),
+                              (DocumentRecord.operator, operator)):
+            if value:
+                statement = statement.where(column.icontains(value, autoescape=True))
+        for column, value in ((DocumentRecord.team, team), (DocumentRecord.status, status)):
+            if value is not None:
+                statement = statement.where(column == value)
+        async with self.sessions() as session:
+            # Count and page use one snapshot even when workers update documents.
+            await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+            total = await session.scalar(select(func.count()).select_from(statement.subquery()))
+            records = await session.scalars(statement.order_by(
+                DocumentRecord.created_at, DocumentRecord.id,
+            ).offset((page - 1) * 20).limit(20))
+            return [_document(record) for record in records], total
 
     async def create(self, document):
         async with self.sessions.begin() as session:

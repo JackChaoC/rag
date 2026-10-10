@@ -188,3 +188,40 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
             )
     finally:
         await cleanupBroker.close()
+
+
+async def test_postgres_document_pagination_and_literal_filters():
+    require_services()
+    database = PostgreSQLResource(Settings().database_url)
+    await database.connect()
+    sessions = database.require_session_factory()
+    repository = DocumentRepository(sessions, database.lockEngine)
+    token, fileId = uuid4().hex, uuid4()
+    ids = []
+    try:
+        async with sessions.begin() as session:
+            session.add(FileRecord(id=fileId, filename='query.md', file_path=f'{fileId}/query.md',
+                                   source_type=SourceType.MARKDOWN, content_hash='query', size_bytes=1))
+        for index in range(47):
+            doc = Document(uuid4(), fileId, f'{token} Guide {index:02}', SourceType.MARKDOWN,
+                           'query.md', 'hash', team=Team.MEMBER, project='Account 100%_literal',
+                           operator='Jack', description='Only description')
+            ids.append(doc.id)
+            await repository.create(doc)
+        pages = [await repository.query(page=n, title=token) for n in (1, 2, 3, 4)]
+        assert [len(items) for items, _ in pages] == [20, 20, 7, 0]
+        assert all(total == 47 for _, total in pages)
+        assert [d.id for items, _ in pages for d in items] == ids
+        items, total = await repository.query(title=token.upper(), project='100%_', operator='ja',
+                                              team=Team.MEMBER, status=DocumentStatus.PENDING, page=3)
+        assert total == 47 and len(items) == 7
+        items, total = await repository.query(title=token, project='100%_missing')
+        assert total == 0 and not items
+        items, total = await repository.query(title=token, document_id=str(ids[0])[:8])
+        assert total == 1 and items[0].id == ids[0]
+        assert (await repository.query(title='Only description', document_id=str(ids[0])))[1] == 0
+    finally:
+        async with sessions.begin() as session:
+            await session.execute(delete(DocumentRecord).where(DocumentRecord.file_id == fileId))
+            await session.execute(delete(FileRecord).where(FileRecord.id == fileId))
+        await database.close()

@@ -1,5 +1,7 @@
 from dependency_injector import containers, providers
 
+from rag.use_cases.query_documents_use_case import QueryDocumentsUseCase
+
 from rag.use_cases.check_health_use_case import CheckHealthUseCase
 from rag.use_cases.delete_document_index_use_case import DeleteDocumentIndexUseCase
 from rag.use_cases.delete_document_use_case import DeleteDocumentUseCase
@@ -40,6 +42,9 @@ class UseCases(containers.DeclarativeContainer):
         DeleteDocumentUseCase,
         documentService=services.documentService,
         publishIngestionDocumentTaskService=services.publishIngestionDocumentTaskService,
+    )
+    queryDocumentsUseCase = providers.Factory(
+        QueryDocumentsUseCase, documentService=services.documentService,
     )
     listDocumentsUseCase = providers.Factory(
         ListDocumentsUseCase,

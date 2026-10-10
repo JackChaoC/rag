@@ -131,3 +131,5 @@ Detailed current contracts are in `regulations/`. Learning progress in
 ### Document query
 
 `GET /v1/documents?q=account&team=member&status=ready` queries document summaries in PostgreSQL. `q` matches title, project, operator, team and document ID as a case-insensitive literal substring. Optional `team`, `status`, `project`, and `operator` filters match exactly and combine with AND. Blank text filters are ignored; no matches return `[]`. Omitting filters lists all documents. The console and MCP `list_documents` support the same filters; full-text semantic retrieval remains `/v1/search`.
+
+The document console uses `GET /v1/documents/query?page=1&title=account&team=member`. It returns `{items,total,page,page_size}` with 20 items per page. Separate `title`, `document_id`, `project`, and `operator` filters use case-insensitive literal substrings; `team` and `status` match exactly. Description is display-only. Results sort by creation time and ID; out-of-range pages return no items with the matching total. The existing list API and MCP remain compatible.

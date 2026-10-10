@@ -18,6 +18,9 @@ class DocumentService:
     async def list(self, **filters):
         return await self.documentRepository.list(**filters)
 
+    async def query(self, **filters):
+        return await self.documentRepository.query(**filters)
+
     async def create(self, document):
         await self.documentRepository.create(document)
 

@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from dependency_injector.wiring import inject
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Query
 
 from rag.api.http.dependencies import (
     DeleteDocumentDep,
@@ -9,9 +9,10 @@ from rag.api.http.dependencies import (
     IngestDocumentDep,
     ListDocumentChunksDep,
     ListDocumentsDep,
+    QueryDocumentsDep,
     ReindexDocumentDep,
 )
-from rag.api.http.schemas import ChunkResponse, DocumentResponse, ErrorResponse, DocumentRequest, ReindexRequest
+from rag.api.http.schemas import DocumentPageResponse, ChunkResponse, DocumentResponse, ErrorResponse, DocumentRequest, ReindexRequest
 from rag.services.common.errors import NotFoundError
 from rag.services.documents.types.document import DocumentStatus, Team
 
@@ -68,6 +69,19 @@ async def list_documents(
         q=q, team=team, status=status, project=project, operator=operator,
     ).items() if value is not None}
     return [_document_response(item) for item in await use_case.execute(**filters)]
+
+
+@router.get("/query", response_model=DocumentPageResponse)
+@inject
+async def query_documents(
+    use_case: QueryDocumentsDep, page: int = Query(1, ge=1, le=100000000),
+    title: str | None = None, document_id: str | None = None,
+    team: Team | None = None, project: str | None = None,
+    operator: str | None = None, status: DocumentStatus | None = None,
+) -> DocumentPageResponse:
+    result = await use_case.execute(page=page, title=title, document_id=document_id,
+                                    team=team, project=project, operator=operator, status=status)
+    return DocumentPageResponse.model_validate(result, from_attributes=True)
 
 
 @router.get("/{document_id}/chunks/{chunk_id}", response_model=ChunkResponse)

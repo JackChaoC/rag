@@ -14,6 +14,7 @@ from rag.use_cases.reindex_document_use_case import ReindexDocumentUseCase
 from rag.use_cases.upload_file_use_case import UploadFileUseCase
 from rag.use_cases.ingest_document_use_case import IngestDocumentUseCase
 from rag.use_cases.get_file_use_case import GetFileUseCase
+from rag.use_cases.query_documents_use_case import QueryDocumentsUseCase
 
 ListDocumentChunksDep = Annotated[
     ListDocumentChunksUseCase,
@@ -54,4 +55,9 @@ IngestDocumentDep = Annotated[
 ]
 GetFileDep = Annotated[
     GetFileUseCase, Depends(Provide[ApplicationContainer.use_cases.getFileUseCase]),
+]
+
+
+QueryDocumentsDep = Annotated[
+    QueryDocumentsUseCase, Depends(Provide[ApplicationContainer.use_cases.queryDocumentsUseCase]),
 ]
