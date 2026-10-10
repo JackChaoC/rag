@@ -5,7 +5,7 @@
   <title>RAG Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css"><link rel="stylesheet" href="/ui/styles.css?v=documents-pagination-1">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css"><link rel="stylesheet" href="/ui/styles.css?v=document-file-icons-1">
 </head>
 <body>
   <div class="shell">
@@ -33,7 +33,7 @@
       location.replace(`http://127.0.0.1:8123/ui/${location.search}${location.hash}`);
     } else {
       const script = document.createElement("script");
-      script.src = "/ui/app.js?v=documents-pagination-1";
+      script.src = "/ui/app.js?v=document-file-icons-1";
       document.body.appendChild(script);
     }
   </script>
