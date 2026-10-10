@@ -10,10 +10,11 @@ from rag.services.health.health_service import HealthService
 @pytest.mark.parametrize('messages,consumers,healthy', [(1, 1, True), (0, 1, False), (1, 0, False), (0, 0, False), (1, 2, True)])
 async def test_worker_requires_fresh_heartbeat_and_consumer(messages, consumers, healthy):
     broker = RabbitMQResource('amqp://unused', (1, 5, 30))
-    broker.channel = SimpleNamespace(declare_queue=AsyncMock(side_effect=[
-        SimpleNamespace(declaration_result=SimpleNamespace(message_count=messages)),
-        SimpleNamespace(declaration_result=SimpleNamespace(consumer_count=consumers)),
+    channel = SimpleNamespace(queue_declare=AsyncMock(side_effect=[
+        SimpleNamespace(message_count=messages),
+        SimpleNamespace(consumer_count=consumers),
     ]))
+    broker.channel = SimpleNamespace(get_underlay_channel=AsyncMock(return_value=channel))
     assert await broker.worker_healthcheck() is healthy
 
 

@@ -159,16 +159,15 @@ class RabbitMQResource:
     async def worker_healthcheck(self) -> bool:
         if self.channel is None:
             return False
-        heartbeat = await self.channel.declare_queue(
-            f"{self.namespace}.worker-heartbeat", passive=True
+        # RobustChannel.declare_queue can return cached startup statistics.
+        channel = await self.channel.get_underlay_channel()
+        heartbeat = await channel.queue_declare(
+            queue=f"{self.namespace}.worker-heartbeat", passive=True, timeout=5
         )
-        jobs = await self.channel.declare_queue(
-            f"{self.namespace}.jobs", passive=True
+        jobs = await channel.queue_declare(
+            queue=f"{self.namespace}.jobs", passive=True, timeout=5
         )
-        return bool(
-            heartbeat.declaration_result.message_count
-            and jobs.declaration_result.consumer_count
-        )
+        return bool(heartbeat.message_count and jobs.consumer_count)
 
     async def ping(self) -> bool:
         return bool(self.connection and not self.connection.is_closed)
