@@ -14,7 +14,7 @@ from rag.containers.resources import container_lifespan, resolve
 from rag.repositories.document_repository import DocumentRepository
 from rag.resources.postgresql.client import PostgreSQLResource
 from rag.resources.postgresql.models import DocumentRecord, FileRecord
-from rag.services.documents.types.document import Document, DocumentStatus, SourceType
+from rag.services.documents.types.document import Document, DocumentStatus, SourceType, Team
 
 pytestmark = pytest.mark.integration
 
@@ -33,7 +33,7 @@ async def test_database_constraints_and_document_lock():
     fileId = uuid4()
     async with sessions.begin() as session:
         session.add(FileRecord(id=fileId, filename="test.md", file_path=f"{fileId}/test.md", source_type=SourceType.MARKDOWN, content_hash="hash", size_bytes=1))
-    doc = Document(uuid4(), fileId, "Test", SourceType.MARKDOWN, "test.md", "hash")
+    doc = Document(uuid4(), fileId, "Test 100%_literal", SourceType.MARKDOWN, "test.md", "hash", team=Team.MEMBER, project="account", operator="Jack", description="Login flow")
     entered = asyncio.Event()
     try:
         async with database.engine.connect() as connection:
@@ -47,6 +47,13 @@ async def test_database_constraints_and_document_lock():
                 Document(uuid4(), uuid4(), "Invalid file reference", SourceType.TEXT, "test.txt", "hash")
             )
         assert (await repository.get(doc.id)).file_path == "test.md"
+        for q in ("100%_", "LOGIN", "Jack", "member", str(doc.id)[:8]):
+            assert doc.id in [d.id for d in await repository.list(q=q)]
+        assert doc.id not in [d.id for d in await repository.list(q="100%_missing")]
+        assert doc.id in [d.id for d in await repository.list(q="test", team=Team.MEMBER, project="account", operator="Jack", status=DocumentStatus.PENDING)]
+        assert doc.id not in [d.id for d in await repository.list(q="test", team=Team.WALLET)]
+        assert doc.id not in [d.id for d in await repository.list(project="acc")]
+        assert doc.id not in [d.id for d in await repository.list(operator="jack")]
 
         async def contender():
             async with repository.lock(doc.id):

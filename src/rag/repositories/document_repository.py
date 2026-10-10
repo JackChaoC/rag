@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from sqlalchemy import select, text, update
+from sqlalchemy import String, cast, or_, select, text, update
 
 from rag.resources.postgresql.models import DocumentRecord
 from rag.services.documents.types.document import Document
@@ -38,13 +38,22 @@ class DocumentRepository:
             )
             return _document(record) if record else None
 
-    async def list(self):
+    async def list(self, q=None, team=None, status=None, project=None, operator=None):
+        statement = select(DocumentRecord)
+        if q:
+            columns = [DocumentRecord.title, DocumentRecord.description,
+                       DocumentRecord.project, DocumentRecord.operator,
+                       cast(DocumentRecord.team, String), cast(DocumentRecord.id, String)]
+            statement = statement.where(or_(
+                *(column.icontains(q, autoescape=True) for column in columns)
+            ))
+        for name, value in (("team", team), ("status", status),
+                            ("project", project), ("operator", operator)):
+            if value is not None:
+                statement = statement.where(getattr(DocumentRecord, name) == value)
+        statement = statement.order_by(DocumentRecord.created_at, DocumentRecord.id)
         async with self.sessions() as session:
-            records = await session.scalars(
-                select(DocumentRecord).order_by(
-                    DocumentRecord.created_at, DocumentRecord.id
-                )
-            )
+            records = await session.scalars(statement)
             return [_document(record) for record in records]
 
     async def create(self, document):

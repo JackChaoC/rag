@@ -240,7 +240,7 @@ async def test_http_and_mcp_share_async_provider_and_override_restores():
         expected = {
             "search_knowledge": {"query", "top_k"},
             "get_document_chunk": {"document_id", "chunk_id"},
-            "list_documents": set(),
+            "list_documents": {"q", "team", "status", "project", "operator"},
         }
         for tool in tools:
             assert set(tool.input_schema.get("properties", {})) == expected[tool.name]

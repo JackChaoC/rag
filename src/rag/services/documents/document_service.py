@@ -15,8 +15,8 @@ class DocumentService:
     async def get_by_file_id(self, file_id):
         return await self.documentRepository.get_by_file_id(file_id)
 
-    async def list(self):
-        return await self.documentRepository.list()
+    async def list(self, **filters):
+        return await self.documentRepository.list(**filters)
 
     async def create(self, document):
         await self.documentRepository.create(document)

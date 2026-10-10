@@ -127,3 +127,7 @@ queues documents from that database.
 
 Detailed current contracts are in `regulations/`. Learning progress in
 `target.md` is not advanced by this architecture refactor.
+
+### Document query
+
+`GET /v1/documents?q=account&team=member&status=ready` queries document summaries in PostgreSQL. `q` matches title, description, project, operator, team and document ID as a case-insensitive literal substring. Optional `team`, `status`, `project`, and `operator` filters match exactly and combine with AND. Blank text filters are ignored; no matches return `[]`. Omitting filters lists all documents. The console and MCP `list_documents` support the same filters; full-text semantic retrieval remains `/v1/search`.

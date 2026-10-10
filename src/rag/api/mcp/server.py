@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from rag.services.documents.types.document import DocumentStatus, Team
+
 from uuid import UUID
 
 from dependency_injector import providers
@@ -43,12 +45,19 @@ def create_mcp_server(
         return ChunkResult.model_validate(result, from_attributes=True)
 
     @server.tool(structured_output=True)
-    async def list_documents() -> list[DocumentResult]:
-        """List document summaries without returning full document content."""
+    async def list_documents(
+        q: str | None = None, team: Team | None = None,
+        status: DocumentStatus | None = None, project: str | None = None,
+        operator: str | None = None,
+    ) -> list[DocumentResult]:
+        """Query document summaries by keyword and exact metadata filters; omit filters to list all."""
+        filters = {name: value for name, value in dict(
+            q=q, team=team, status=status, project=project, operator=operator,
+        ).items() if value is not None}
         use_case = await resolve(list_documents_provider)
         return [
             DocumentResult.model_validate(item, from_attributes=True)
-            for item in await use_case.execute()
+            for item in await use_case.execute(**filters)
         ]
 
     return server

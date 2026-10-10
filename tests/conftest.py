@@ -28,8 +28,12 @@ class MemoryDocumentRepository:
     async def get_by_file_id(self, file_id):
         return next((d for d in self.documents.values() if d.file_id == file_id), None)
 
-    async def list(self):
-        return list(self.documents.values())
+    async def list(self, q=None, **filters):
+        return [d for d in self.documents.values()
+                if all(getattr(d, key) == value for key, value in filters.items())
+                and (not q or any(q.casefold() in str(value or "").casefold()
+                     for value in (d.title, d.description, d.project, d.operator,
+                                   d.team.value if d.team else None, d.id)))]
 
     async def create(self, document):
         self.documents[document.id] = document

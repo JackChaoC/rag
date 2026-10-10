@@ -13,6 +13,7 @@ from rag.api.http.dependencies import (
 )
 from rag.api.http.schemas import ChunkResponse, DocumentResponse, ErrorResponse, DocumentRequest, ReindexRequest
 from rag.services.common.errors import NotFoundError
+from rag.services.documents.types.document import DocumentStatus, Team
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -58,8 +59,15 @@ async def delete_document(
 
 @router.get("", response_model=list[DocumentResponse])
 @inject
-async def list_documents(use_case: ListDocumentsDep) -> list[DocumentResponse]:
-    return [_document_response(item) for item in await use_case.execute()]
+async def list_documents(
+    use_case: ListDocumentsDep, q: str | None = None, team: Team | None = None,
+    status: DocumentStatus | None = None, project: str | None = None,
+    operator: str | None = None,
+) -> list[DocumentResponse]:
+    filters = {name: value for name, value in dict(
+        q=q, team=team, status=status, project=project, operator=operator,
+    ).items() if value is not None}
+    return [_document_response(item) for item in await use_case.execute(**filters)]
 
 
 @router.get("/{document_id}/chunks/{chunk_id}", response_model=ChunkResponse)
