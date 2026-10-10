@@ -11,6 +11,7 @@ from rag.api.http.routes import (
     api_router,
     chunks,
     documents,
+    files,
     health,
     root_router,
     search,
@@ -22,7 +23,7 @@ from rag.containers.resources import container_lifespan
 
 def create_app(container: ApplicationContainer | None = None) -> FastAPI:
     container = container or create_container()
-    container.wire(modules=[documents, chunks, search, health])
+    container.wire(modules=[documents, files, chunks, search, health])
     mcp = create_mcp_server(
         search_knowledge_provider=container.use_cases.queryKnowledgeUseCase,
         get_document_chunk_provider=container.use_cases.getChunkDetailUseCase,

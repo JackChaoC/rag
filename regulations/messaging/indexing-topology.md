@@ -17,7 +17,7 @@
 
 可恢复错误最多重试三次。Worker 根据 `x-retry-count` 选择下一档 Retry Queue，Publisher Confirm 成功后 ACK 原消息；禁止对原队列立即 `nack(requeue=true)`。不可恢复错误或第三次重试仍失败的消息发布到 `rag.llama-index.indexing.dlx`，Confirm 成功后 ACK 原消息，并由 Worker 记录终态错误（索引为 `failed`，删除保持 `deleting`）。重试延迟允许通过配置覆盖，但队列数量和最大重试次数第一版固定为三次。
 
-发布失败时，请求必须返回可识别的失败，不得伪装为已提交；已经保存为 `pending` 但未确认发布的文档必须允许调用方使用相同 `source_uri` 和内容安全重试，重试不得新建重复 Document 或版本。
+发布失败时，请求必须返回可识别的失败，不得伪装为已提交；已经保存为 `pending` 但未确认发布的文档必须允许调用方使用相同 `file_url` 和文档信息安全重试，重试不得新建重复 Document 或版本。
 
 验收条件：自动化测试证明 durable 声明和路由正确；未 ACK 消息会重投；重复消息保持幂等；重试达到上限后进入死信队列；Publisher Confirm 失败不会返回成功。
 

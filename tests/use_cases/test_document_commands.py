@@ -6,9 +6,8 @@ from rag.services.publisher.types.message import IndexMessage, IndexOperation
 
 
 async def upload(container, data=b"# Hello\n## World\nbody", uri="doc.md"):
-    return await container.use_cases.uploadFileUseCase().execute(
-        data, uri, SourceType.MARKDOWN
-    )
+    file = await container.use_cases.uploadFileUseCase().execute(data, uri)
+    return await container.use_cases.ingestDocumentUseCase().execute(file.url, "Doc")
 
 
 async def test_upload_only_stores_file_and_queues_job(appContainer):
@@ -23,14 +22,14 @@ async def test_upload_only_stores_file_and_queues_job(appContainer):
     appContainer.resources.rabbitmqResource().publish.assert_awaited_once()
 
 
-async def test_duplicate_upload_reuses_document_and_different_content_conflicts(
-    appContainer,
-):
-    first, second = await upload(appContainer), await upload(appContainer)
+async def test_duplicate_ingest_reuses_document_and_different_information_conflicts(appContainer):
+    file = await appContainer.use_cases.uploadFileUseCase().execute(b"# Doc", "doc.md")
+    ingest = appContainer.use_cases.ingestDocumentUseCase()
+    first = await ingest.execute(file.url, "Doc")
+    second = await ingest.execute(file.url, "Doc")
     assert first.document_id == second.document_id
-    assert first.version == second.version == 1
     with pytest.raises(ConflictError):
-        await upload(appContainer, b"different")
+        await ingest.execute(file.url, "Different title")
 
 
 async def test_upload_confirm_failure_retains_file_and_can_retry(appContainer):
@@ -42,7 +41,7 @@ async def test_upload_confirm_failure_retains_file_and_can_retry(appContainer):
     assert doc.status is DocumentStatus.FAILED
     assert await appContainer.services.fileService().read(doc.file_path)
     broker.publish.side_effect = None
-    result = await upload(appContainer)
+    result = await appContainer.use_cases.ingestDocumentUseCase().execute(f"/v1/files/{doc.file_id}", "Doc")
     assert result.document_id == doc.id
     assert broker.publish.await_count == 2
 
@@ -53,11 +52,10 @@ async def test_reindex_replaces_file_and_removes_old_nodes(appContainer):
     await appContainer.worker.dispatcher().dispatch("document.ingest", message)
     doc = await appContainer.services.documentService().get(created.document_id)
     oldPath = appContainer.services.fileService().path(doc.file_path)
-    result = await appContainer.use_cases.reindexDocumentUseCase().execute(
-        doc.id, b"# Updated"
-    )
+    file = await appContainer.use_cases.uploadFileUseCase().execute(b"# Updated", "updated.md")
+    result = await appContainer.use_cases.reindexDocumentUseCase().execute(doc.id, file.url)
     assert result.version == 2
-    assert not oldPath.exists()
+    assert oldPath.exists()
     assert await appContainer.services.chunkLookupService().listChunks(doc.id) == []
     await appContainer.worker.dispatcher().dispatch(
         "document.reindex", IndexMessage(doc.id, IndexOperation.REINDEX, 2)
@@ -89,15 +87,16 @@ async def test_concurrent_duplicate_upload_does_not_create_second_document(
 ):
     import asyncio
 
-    first, second = await asyncio.gather(upload(appContainer), upload(appContainer))
+    file = await appContainer.use_cases.uploadFileUseCase().execute(b"# Doc", "doc.md")
+    ingest = appContainer.use_cases.ingestDocumentUseCase()
+    first, second = await asyncio.gather(ingest.execute(file.url, "Doc"), ingest.execute(file.url, "Doc"))
     assert first.document_id == second.document_id
     assert len(await appContainer.services.documentService().list()) == 1
 
 
 async def test_bad_pdf_is_accepted_as_file_but_fails_in_worker(appContainer):
-    result = await appContainer.use_cases.uploadFileUseCase().execute(
-        b"broken pdf", "bad.pdf", SourceType.PDF
-    )
+    file = await appContainer.use_cases.uploadFileUseCase().execute(b"broken pdf", "bad.pdf")
+    result = await appContainer.use_cases.ingestDocumentUseCase().execute(file.url, "Bad PDF")
     message = IndexMessage(result.document_id, IndexOperation.INGEST, 1)
     with pytest.raises(Exception):
         await appContainer.worker.dispatcher().dispatch("document.ingest", message)
@@ -109,3 +108,18 @@ async def test_bad_pdf_is_accepted_as_file_but_fails_in_worker(appContainer):
     assert (
         await appContainer.services.chunkLookupService().listChunks(document.id) == []
     )
+
+
+async def test_legacy_file_and_document_same_id_does_not_deadlock(appContainer):
+    import asyncio
+    from rag.services.documents.types.document import Document
+
+    file = await appContainer.use_cases.uploadFileUseCase().execute(b"# Legacy", "legacy.md")
+    document = Document(id=file.id, file_id=file.id, title="Legacy",
+                        source_type=file.source_type, file_path=file.file_path,
+                        content_hash=file.content_hash, status=DocumentStatus.READY)
+    await appContainer.services.documentService().create(document)
+    result = await asyncio.wait_for(
+        appContainer.use_cases.ingestDocumentUseCase().execute(file.url, "Legacy"), timeout=1)
+    assert result.document_id == document.id
+    appContainer.resources.rabbitmqResource().publish.assert_not_awaited()

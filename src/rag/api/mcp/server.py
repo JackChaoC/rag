@@ -47,14 +47,7 @@ def create_mcp_server(
         """List document summaries without returning full document content."""
         use_case = await resolve(list_documents_provider)
         return [
-            DocumentResult(
-                document_id=item.document_id,
-                source_uri=item.source_uri,
-                title=item.title,
-                version=item.version,
-                status=item.status.value,
-                metadata=item.metadata,
-            )
+            DocumentResult.model_validate(item, from_attributes=True)
             for item in await use_case.execute()
         ]
 

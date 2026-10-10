@@ -8,7 +8,7 @@ class HydratedChunk:
     chunk_id: UUID
     document_id: UUID
     content: str
-    source_uri: str
+    file_url: str
     title: str | None
     start_line: int | None
     end_line: int | None

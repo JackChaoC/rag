@@ -11,7 +11,7 @@ class SearchResult:
     document_id: UUID
     score: float
     content: str
-    source_uri: str
+    file_url: str
     title: str | None
     start_line: int | None
     end_line: int | None

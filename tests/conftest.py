@@ -25,8 +25,8 @@ class MemoryDocumentRepository:
     async def get(self, documentId):
         return self.documents.get(documentId)
 
-    async def get_by_source_uri(self, uri):
-        return next((d for d in self.documents.values() if d.source_uri == uri), None)
+    async def get_by_file_id(self, file_id):
+        return next((d for d in self.documents.values() if d.file_id == file_id), None)
 
     async def list(self):
         return list(self.documents.values())
@@ -45,9 +45,21 @@ class MemoryDocumentRepository:
         return True
 
 
+class MemoryFileRecordRepository:
+    def __init__(self):
+        self.files = {}
+
+    async def create(self, file):
+        self.files[file.id] = file
+
+    async def get(self, fileId):
+        return self.files.get(fileId)
+
+
 @pytest.fixture
 async def appContainer(tmp_path):
     container = create_container(Settings(_env_file=None, storage_path=str(tmp_path)))
+    container.repositories.fileRecordRepository.override(providers.Object(MemoryFileRecordRepository()))
     client = AsyncQdrantClient(location=":memory:")
     documents = MemoryDocumentRepository()
     container.repositories.documentRepository.override(providers.Object(documents))

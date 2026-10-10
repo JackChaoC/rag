@@ -6,12 +6,12 @@ from rag.services.documents.types.hydrated_chunk import HydratedChunk
 
 
 def chunkDetail(node):
-    metadata = node.metadata
+    metadata = {k: v for k, v in node.metadata.items() if k != "source_uri"}
     return HydratedChunk(
         UUID(node.node_id),
         UUID(metadata["document_id"]),
         node.text,
-        metadata["source_uri"],
+        metadata.get("file_url") or f"/v1/files/{metadata['document_id']}",
         metadata.get("title") or None,
         metadata.get("start_line"),
         metadata.get("end_line"),

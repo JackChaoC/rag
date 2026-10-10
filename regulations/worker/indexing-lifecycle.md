@@ -6,12 +6,12 @@
 > 变更来源：`implement-regulations`
 > 落地状态：`已实现`
 
-- API/Worker 通过 PG transaction advisory lock 对同一 document_id 串行化；上传按来源标识另加锁防止重复创建。
+- API/Worker 通过 PG transaction advisory lock 对同一 document_id 串行化；创建文档按 file_id 另加锁防止重复创建。
 - Worker 先读当前 Document：旧版本消息直接成功返回，不删除新 Nodes；超前版本失败；deleting/deleted 不再索引。
 - Ingest/Reindex：置 indexing → 删除该文档旧 Nodes → 从 file_path 读取 → splitter → Embedding → Qdrant 写入 → ready，成功清空 last_error，最后 Broker ACK。
 - 重复消息使用相同 Node ID，重试会清理该文档残留并重新生成。Qdrant 成功但状态更新失败也可重试收敛。
-- Reindex API 存下一版本文件并更新 PG 后删除旧文件/Nodes，再发布新版本；无文件时读取当前文件仍创建下一版本，不承诺更新期间可搜索。
-- Delete API 置 deleting 并发布任务；Worker 删除该文档 Nodes 和当前文件，置 deleted。重复删除幂等。
+- Reindex API 引用已上传的新文件（或当前文件）并更新 PG 后删除旧 Nodes，再发布新版本；无新 URL 时保留当前文件并创建下一版本，不承诺更新期间可搜索。
+- Delete API 置 deleting 并发布任务；Worker 删除该文档 Nodes，保留独立上传的原文件，置 deleted。重复删除幂等。
 - 索引终态失败清理当前文档 Nodes 并记 failed/last_error；删除终态失败保持 deleting/last_error，禁止旧 ingest 消息复活文档，可重试 DELETE。
 - RebuildIndexUseCase 为 ready/failed 文档发布当前版本重建任务，返回排队文档数；不调用其他 UseCase，不新建版本。
 

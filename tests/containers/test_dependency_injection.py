@@ -59,7 +59,7 @@ async def test_providers_share_services_and_keep_containers_isolated():
         assert documentService is await resolve(first.services.documentService)
         assert documentService is not await resolve(second.services.documentService)
         for name in (
-            "uploadFileUseCase",
+            "ingestDocumentUseCase",
             "indexDocumentUseCase",
             "deleteDocumentIndexUseCase",
         ):

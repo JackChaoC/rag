@@ -31,10 +31,10 @@ class DocumentRepository:
             record = await session.get(DocumentRecord, documentId)
             return _document(record) if record else None
 
-    async def get_by_source_uri(self, source_uri):
+    async def get_by_file_id(self, file_id):
         async with self.sessions() as session:
             record = await session.scalar(
-                select(DocumentRecord).where(DocumentRecord.source_uri == source_uri)
+                select(DocumentRecord).where(DocumentRecord.file_id == file_id)
             )
             return _document(record) if record else None
 
@@ -74,7 +74,9 @@ class DocumentRepository:
 
 def _values(document):
     return dict(
-        source_uri=document.source_uri,
+        file_id=document.file_id,
+        team=document.team, project=document.project,
+        description=document.description, operator=document.operator,
         title=document.title,
         source_type=document.source_type,
         file_path=document.file_path,
@@ -89,7 +91,9 @@ def _values(document):
 def _document(record):
     return Document(
         id=record.id,
-        source_uri=record.source_uri,
+        file_id=record.file_id,
+        team=record.team, project=record.project,
+        description=record.description, operator=record.operator,
         source_type=record.source_type,
         file_path=record.file_path,
         content_hash=record.content_hash,

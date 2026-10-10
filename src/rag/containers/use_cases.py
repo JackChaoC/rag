@@ -12,13 +12,19 @@ from rag.use_cases.query_knowledge_use_case import QueryKnowledgeUseCase
 from rag.use_cases.rebuild_index_use_case import RebuildIndexUseCase
 from rag.use_cases.reindex_document_use_case import ReindexDocumentUseCase
 from rag.use_cases.upload_file_use_case import UploadFileUseCase
+from rag.use_cases.ingest_document_use_case import IngestDocumentUseCase
+from rag.use_cases.get_file_use_case import GetFileUseCase
 
 
 class UseCases(containers.DeclarativeContainer):
     services = providers.DependenciesContainer()
 
     uploadFileUseCase = providers.Factory(
-        UploadFileUseCase,
+        UploadFileUseCase, fileService=services.fileService,
+    )
+    getFileUseCase = providers.Factory(GetFileUseCase, fileService=services.fileService)
+    ingestDocumentUseCase = providers.Factory(
+        IngestDocumentUseCase,
         fileService=services.fileService,
         documentService=services.documentService,
         publishIngestionDocumentTaskService=services.publishIngestionDocumentTaskService,

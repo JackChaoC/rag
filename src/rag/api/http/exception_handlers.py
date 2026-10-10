@@ -1,10 +1,15 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 from rag.services.common.errors import ConflictError, DependencyError, NotFoundError
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(_: Request, exc: RequestValidationError):
+        return JSONResponse(status_code=422, content={"code": "invalid_input", "message": "; ".join(error["msg"] for error in exc.errors())})
+
     @app.exception_handler(NotFoundError)
     async def not_found(_: Request, exc: NotFoundError):
         return JSONResponse(

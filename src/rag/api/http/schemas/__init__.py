@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from rag.services.documents.types.document import Team
 
 
 class ErrorResponse(BaseModel):
@@ -16,13 +18,48 @@ class HealthResponse(BaseModel):
     dependencies: dict[str, bool]
 
 
+class DocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    file_url: str
+    title: str = Field(min_length=1)
+    team: Team | None = None
+    project: str | None = None
+    description: str | None = None
+    operator: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("title")
+    @classmethod
+    def nonblank_title(cls, value):
+        if not value.strip():
+            raise ValueError("title is required")
+        return value.strip()
+
+
+class ReindexRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    file_url: str | None = None
+
+
+class FileResponse(BaseModel):
+    file_id: UUID
+    url: str
+    filename: str
+    size_bytes: int
+
+
 class DocumentResponse(BaseModel):
     document_id: UUID
-    source_uri: str
-    title: str | None
+    file_url: str
+    title: str
     version: int
     status: str
     metadata: dict[str, Any]
+    team: Team | None = None
+    project: str | None = None
+    description: str | None = None
+    operator: str | None = None
+    last_error: str | None = None
 
 
 class SearchRequest(BaseModel):
@@ -35,7 +72,7 @@ class SearchItem(BaseModel):
     document_id: UUID
     score: float
     content: str
-    source_uri: str
+    file_url: str
     title: str | None
     start_line: int | None
     end_line: int | None
@@ -46,7 +83,7 @@ class ChunkResponse(BaseModel):
     chunk_id: UUID
     document_id: UUID
     content: str
-    source_uri: str
+    file_url: str
     title: str | None
     start_line: int | None
     end_line: int | None

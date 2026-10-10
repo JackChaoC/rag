@@ -12,13 +12,15 @@ from rag.use_cases.list_documents_use_case import ListDocumentsUseCase
 from rag.use_cases.query_knowledge_use_case import QueryKnowledgeUseCase
 from rag.use_cases.reindex_document_use_case import ReindexDocumentUseCase
 from rag.use_cases.upload_file_use_case import UploadFileUseCase
+from rag.use_cases.ingest_document_use_case import IngestDocumentUseCase
+from rag.use_cases.get_file_use_case import GetFileUseCase
 
 ListDocumentChunksDep = Annotated[
     ListDocumentChunksUseCase,
     Depends(Provide[ApplicationContainer.use_cases.listDocumentChunksUseCase]),
 ]
 
-IngestDocumentDep = Annotated[
+UploadFileDep = Annotated[
     UploadFileUseCase,
     Depends(Provide[ApplicationContainer.use_cases.uploadFileUseCase]),
 ]
@@ -45,4 +47,11 @@ SearchKnowledgeDep = Annotated[
 CheckHealthDep = Annotated[
     CheckHealthUseCase,
     Depends(Provide[ApplicationContainer.use_cases.checkHealthUseCase]),
+]
+
+IngestDocumentDep = Annotated[
+    IngestDocumentUseCase, Depends(Provide[ApplicationContainer.use_cases.ingestDocumentUseCase]),
+]
+GetFileDep = Annotated[
+    GetFileUseCase, Depends(Provide[ApplicationContainer.use_cases.getFileUseCase]),
 ]

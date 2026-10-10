@@ -27,7 +27,7 @@ async def test_official_qdrant_nodes_lookup_query_and_delete():
                     metadata={
                         "document_id": str(documentId),
                         "version": 1,
-                        "source_uri": "doc.md",
+                        "file_url": "/v1/files/test",
                         "title": "Doc",
                     },
                 )
@@ -45,7 +45,7 @@ async def test_official_qdrant_nodes_lookup_query_and_delete():
         assert chunk.metadata["heading_h1"] == "Doc"
         results = await VectorQueryService(repository).query("body", 2)
         assert len(results) == 2
-        assert all(r.content and r.source_uri == "doc.md" for r in results)
+        assert all(r.content and r.file_url == "/v1/files/test" for r in results)
         await client.delete_collection("test_nodes")
         await repository.add(nodes)
         assert len(await repository.listChunks(documentId)) == 3
@@ -62,3 +62,13 @@ async def test_official_qdrant_nodes_lookup_query_and_delete():
 async def test_query_validation(query, top_k):
     with pytest.raises(ValueError):
         await VectorQueryService(None).query(query, top_k)
+
+
+def test_legacy_node_keeps_file_link_without_source_uri():
+    from llama_index.core.schema import TextNode
+    from rag.services.retrieval.chunk_lookup_service import chunkDetail
+    document_id = uuid4()
+    node = TextNode(id_=str(uuid4()), text="legacy content", metadata={"document_id": str(document_id), "source_uri": "legacy.md"})
+    result = chunkDetail(node)
+    assert result.file_url == f"/v1/files/{document_id}"
+    assert "source_uri" not in result.metadata

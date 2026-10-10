@@ -7,7 +7,7 @@
 > 落地状态：`已实现`
 
 - 默认独立 Collection rag_llama_index_nodes；官方 QdrantVectorStore 管理命名 Dense Vector、Cosine 与完整 Node payload（含 _node_content），不维护自定义序列化。
-- Node 存完整文本、document_id、version、chunk_index、source_uri、title、heading_h1、heading_h2、start_line/end_line 及自定义 metadata；无 PG Chunk ID 依赖。
+- Node 存完整文本、document_id、version、chunk_index、file_url、title、team、project、description、operator、heading_h1、heading_h2、start_line/end_line 及自定义 metadata；无 PG Chunk ID 依赖。
 - EmbeddingRepository 注入 OllamaEmbedding Resource，使用 IngestionPipeline 转换 Nodes；默认 Metadata + 文本格式保留 title/H1/H2，其他 metadata 从 Embedding 输入排除。
 - Query 使用同一 OllamaEmbedding；只传查询文本，无文档 Metadata。
 - Collection 按首批向量真实维度建立，错误不静默降级。Collection 被删除后可用保存的原文件重新解析、切块、生成向量，不依赖 PG chunks。
@@ -26,3 +26,5 @@
 - 不提供 Metadata Filter、Sparse、Hybrid、Reranker 或答案生成。
 
 - Ollama 请求不传 num_gpu，由 Ollama 自动选择设备；keep_alive 为 5m。
+
+- 历史 Nodes 不重新计算向量；读取时移除旧 source_uri，缺失 file_url 时按迁移保留的 document_id/file_id 生成原文件 URL。

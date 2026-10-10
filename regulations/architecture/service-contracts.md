@@ -8,8 +8,12 @@
 
 第一版提供以下端点：
 
-- `POST /v1/documents`：接收 `multipart/form-data`，字段为 `file`、必填 `source_uri`、可选 `title` 和可选 JSON Object 字符串 `metadata`；完成原文件保存和 PostgreSQL 管理记录保存并收到 RabbitMQ Publisher Confirm 后返回 `202`。
-- `POST /v1/documents/{document_id}/reindex`：接收可选 `multipart/form-data` 文件。提供文件时替换原文件；未提供文件时读取当前存储文件。两者均创建下一版本，删除旧文件/Nodes，确认发布 Reindex 消息后返回 `202`。
+- `POST /v1/files`：multipart `file`，只保存原文件和 files 记录，返回 `201` 与 `file_id`、`url`、`filename`、`size_bytes`；不创建文档或触发索引。URL 为同源 `/v1/files/{id}`。
+- `GET /v1/files/{id}`：在线查看原文件；Markdown/TXT 返回 text/plain，PDF 返回 application/pdf，Content-Disposition 为 inline。
+- `GET /v1/files/{id}?download=true`：返回 attachment，前端使用 `<a download>` 发起浏览器下载，保留原始文件名。
+- `POST /v1/documents`：JSON `file_url`、必填非空 `title`，可选 `team`、`project`、`description`、`operator`、`metadata`；只接受上传接口返回的文件 URL，不抓取外部 URL；确认发布索引消息后返回 `202`。
+- `team` 枚举为 wallet、member、devops、data、event；其他新增字段可空。移除 Source URI 输入和输出，检索引用改用 `file_url`。
+- `POST /v1/documents/{document_id}/reindex`：可选 JSON `file_url`；有 URL 时切换到已上传文件，无 URL 时使用现有文件。增加版本、清除旧 Nodes 并发布任务，返回 `202`。原上传文件独立保留。
 - `DELETE /v1/documents/{document_id}`：把文档置为 `deleting` 并确认发布 Delete 消息后返回 `202`。
 - `GET /v1/documents`：返回文档摘要列表，不返回完整正文。
 - `GET /v1/documents/{document_id}/chunks`：按 chunk_index 返回指定文档全部 Chunk。
@@ -18,9 +22,9 @@
 - `POST /v1/search`：接收 `query` 和 `top_k`，返回 Dense 检索结果，不调用 LLM。
 - `GET /health`：分别报告进程存活和 PostgreSQL、RabbitMQ、Qdrant、Ollama 的依赖状态及 worker 消费者/心跳状态；依赖失败时不得仍报告整体 ready。
 
-文档写入响应至少包含 `document_id`、`version`、`status`；搜索结果至少包含 `chunk_id`、`document_id`、`score`、`content`、`source_uri`、`title`、`start_line`、`end_line` 和 `metadata`。`top_k` 默认 `5`，HTTP、MCP 和核心检索统一允许 `1..10`。不存在返回 `404`，输入或文件类型不支持返回 `422`，消息未确认或依赖不可用返回 `503`。所有错误使用稳定的 `{ "code": string, "message": string }` 结构。
+文档写入响应至少包含 `document_id`、`version`、`status`；搜索结果至少包含 `chunk_id`、`document_id`、`score`、`content`、`file_url`、`title`、`start_line`、`end_line` 和 `metadata`。`top_k` 默认 `5`，HTTP、MCP 和核心检索统一允许 `1..10`。不存在返回 `404`，输入或文件类型不支持返回 `422`，消息未确认或依赖不可用返回 `503`。所有错误使用稳定的 `{ "code": string, "message": string }` 结构。
 
-同一 `source_uri` 与相同内容重复提交必须返回原 Document/版本并安全重新发布尚未确认的任务；相同 `source_uri` 与不同内容必须通过带文件的 Reindex 更新，不得由创建端点静默覆盖。
+同一文件 URL 和相同文档信息重复提交返回原文档，并允许重新发布未确认任务；同一文件的不同信息返回 409。文件更新通过 reindex 引用新上传文件。
 
 验收条件：OpenAPI 能表达全部请求响应；接口测试覆盖成功、重复提交、无效 Metadata、不支持格式、未找到和 Publisher Confirm 失败；HTTP 层只调用 Use Case。
 

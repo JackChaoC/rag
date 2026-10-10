@@ -17,6 +17,14 @@ class SourceType(StrEnum):
     HTML = "html"
 
 
+class Team(StrEnum):
+    WALLET = "wallet"
+    MEMBER = "member"
+    DEVOPS = "devops"
+    DATA = "data"
+    EVENT = "event"
+
+
 class DocumentStatus(StrEnum):
     PENDING = "pending"
     INDEXING = "indexing"
@@ -29,13 +37,17 @@ class DocumentStatus(StrEnum):
 @dataclass(slots=True)
 class Document:
     id: UUID
-    source_uri: str
+    file_id: UUID
+    title: str
     source_type: SourceType
     file_path: str
     content_hash: str
     current_version: int = 1
     status: DocumentStatus = DocumentStatus.PENDING
-    title: str | None = None
+    team: Team | None = None
+    project: str | None = None
+    description: str | None = None
+    operator: str | None = None
     last_error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: datetime | None = None

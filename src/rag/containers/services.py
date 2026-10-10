@@ -23,7 +23,8 @@ class Services(containers.DeclarativeContainer):
         DocumentService, documentRepository=repositories.documentRepository
     )
     fileService = providers.Singleton(
-        FileService, fileRepository=repositories.fileRepository
+        FileService, fileRepository=repositories.fileRepository,
+        fileRecordRepository=repositories.fileRecordRepository
     )
     readerService = providers.Singleton(ReaderService)
     markdownNodeParser = providers.Factory(MarkdownNodeParser)

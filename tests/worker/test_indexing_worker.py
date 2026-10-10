@@ -16,9 +16,10 @@ class RecordingHandler:
 
 
 async def setup(container):
-    result = await container.use_cases.uploadFileUseCase().execute(
-        b"# Guide\nintro\n## Topic\nbody", "doc.md", SourceType.MARKDOWN, "Guide"
+    file = await container.use_cases.uploadFileUseCase().execute(
+        b"# Guide\nintro\n## Topic\nbody", "doc.md"
     )
+    result = await container.use_cases.ingestDocumentUseCase().execute(file.url, "Guide")
     return IndexMessage(result.document_id, IndexOperation.INGEST, 1)
 
 
@@ -91,7 +92,7 @@ async def test_terminal_failure_cleans_nodes_and_records_error(appContainer):
     )
 
 
-async def test_duplicate_delete_removes_nodes_and_file(appContainer):
+async def test_duplicate_delete_removes_nodes_and_preserves_uploaded_file(appContainer):
     message = await setup(appContainer)
     await appContainer.worker.dispatcher().dispatch("document.ingest", message)
     document = await appContainer.services.documentService().get(message.document_id)
@@ -101,7 +102,7 @@ async def test_duplicate_delete_removes_nodes_and_file(appContainer):
     for _ in range(2):
         await appContainer.worker.dispatcher().dispatch("document.delete", message)
     assert document.status is DocumentStatus.DELETED
-    assert not path.exists()
+    assert path.exists()
     assert (
         await appContainer.services.chunkLookupService().listChunks(document.id) == []
     )

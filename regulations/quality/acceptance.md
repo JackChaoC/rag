@@ -13,5 +13,5 @@
 - Worker 覆盖重复索引/删除、旧任务无操作、状态切换失败后重试、终态清理；Broker 覆盖 retry、dead-letter、ACK 与退出等待。
 - 容器覆盖共享依赖、资源逆序关闭、启动失败/取消、HTTP/MCP 使用同一 provider；架构测试禁止跨层导入。
 - 显式 RUN_RAG_INTEGRATION=1 启用真实 PostgreSQL、RabbitMQ、Qdrant、Ollama：文档约束/跨连接锁、PDF 到检索/更新/重建/删除、真实延迟重试。
-- migration 在新空库执行，alembic check 无结构差异；不迁移旧库。
+- 文件分离迁移需验证有数据的旧库，保留文件和索引；alembic check 无结构差异。
 - 不更新学习阶段完成度，不把架构重构等同于完成 Agent 学习。

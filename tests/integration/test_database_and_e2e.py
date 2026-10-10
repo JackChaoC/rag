@@ -13,7 +13,7 @@ from rag.containers import create_container
 from rag.containers.resources import container_lifespan, resolve
 from rag.repositories.document_repository import DocumentRepository
 from rag.resources.postgresql.client import PostgreSQLResource
-from rag.resources.postgresql.models import DocumentRecord
+from rag.resources.postgresql.models import DocumentRecord, FileRecord
 from rag.services.documents.types.document import Document, DocumentStatus, SourceType
 
 pytestmark = pytest.mark.integration
@@ -30,7 +30,10 @@ async def test_database_constraints_and_document_lock():
     await database.connect()
     sessions = database.require_session_factory()
     repository = DocumentRepository(sessions, database.lockEngine)
-    doc = Document(uuid4(), f"test-{uuid4()}", SourceType.MARKDOWN, "test.md", "hash")
+    fileId = uuid4()
+    async with sessions.begin() as session:
+        session.add(FileRecord(id=fileId, filename="test.md", file_path=f"{fileId}/test.md", source_type=SourceType.MARKDOWN, content_hash="hash", size_bytes=1))
+    doc = Document(uuid4(), fileId, "Test", SourceType.MARKDOWN, "test.md", "hash")
     entered = asyncio.Event()
     try:
         async with database.engine.connect() as connection:
@@ -41,7 +44,7 @@ async def test_database_constraints_and_document_lock():
         await repository.create(doc)
         with pytest.raises(IntegrityError):
             await repository.create(
-                Document(uuid4(), doc.source_uri, SourceType.TEXT, "test.txt", "hash")
+                Document(uuid4(), uuid4(), "Invalid file reference", SourceType.TEXT, "test.txt", "hash")
             )
         assert (await repository.get(doc.id)).file_path == "test.md"
 
@@ -60,6 +63,8 @@ async def test_database_constraints_and_document_lock():
             await session.execute(
                 delete(DocumentRecord).where(DocumentRecord.id == doc.id)
             )
+        async with sessions.begin() as session:
+            await session.execute(delete(FileRecord).where(FileRecord.id == fileId))
         await database.close()
 
 
@@ -74,6 +79,7 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
     )
     container = create_container(settings)
     documentId = None
+    uploaded = None
     async with container_lifespan(container):
         broker = await resolve(container.resources.rabbitmqResource)
         dispatcher = await resolve(container.worker.dispatcher)
@@ -100,9 +106,9 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
         page.save()
         try:
             upload = await resolve(container.use_cases.uploadFileUseCase)
-            result = await upload.execute(
-                output.getvalue(), f"{token}.pdf", SourceType.PDF, "Qdrant"
-            )
+            uploaded = await upload.execute(output.getvalue(), f"{token}.pdf")
+            ingest = await resolve(container.use_cases.ingestDocumentUseCase)
+            result = await ingest.execute(uploaded.url, "Qdrant")
             documentId = result.document_id
             await wait_status(DocumentStatus.READY)
             chunks = await lookup.listChunks(documentId)
@@ -123,9 +129,7 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
             query = await resolve(container.use_cases.queryKnowledgeUseCase)
             hits = await query.execute("Where are chunks stored?", 1)
             assert hits and hits[0].document_id == documentId
-            duplicate = await upload.execute(
-                output.getvalue(), f"{token}.pdf", SourceType.PDF
-            )
+            duplicate = await ingest.execute(uploaded.url, "Qdrant")
             assert duplicate.version == 1
             reindex = await resolve(container.use_cases.reindexDocumentUseCase)
             assert (await reindex.execute(documentId)).version == 2
@@ -142,7 +146,7 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
             await deleteUseCase.execute(documentId)
             doc = await wait_status(DocumentStatus.DELETED)
             assert await lookup.listChunks(documentId) == []
-            assert not (tmp_path / doc.file_path).exists()
+            assert (tmp_path / doc.file_path).exists()
         finally:
             # Only this test's unique collection, queues and row are removed.
             await broker.close()
@@ -155,6 +159,9 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
                     await session.execute(
                         delete(DocumentRecord).where(DocumentRecord.id == documentId)
                     )
+            if uploaded:
+                async with database.require_session_factory().begin() as session:
+                    await session.execute(delete(FileRecord).where(FileRecord.id == uploaded.id))
     # Reconnect solely to delete this run's explicitly named RabbitMQ topology.
     from rag.resources.rabbitmq.broker import RabbitMQResource
 
@@ -163,7 +170,7 @@ async def test_pdf_upload_worker_search_update_rebuild_delete(tmp_path):
     )
     try:
         await cleanupBroker.connect()
-        for suffix in ("jobs", "dead", "retry.1", "retry.2", "retry.3"):
+        for suffix in ("jobs", "worker-heartbeat", "dead", "retry.1", "retry.2", "retry.3"):
             await cleanupBroker.channel.queue_delete(
                 f"{settings.rabbitmq_namespace}.{suffix}"
             )

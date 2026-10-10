@@ -52,7 +52,7 @@ class ContractData:
                 chunk_id=chunk_id,
                 document_id=document_id,
                 content="text",
-                source_uri="doc.md",
+                file_url="/v1/files/test",
                 title="Doc",
                 start_line=1,
                 end_line=1,
@@ -68,7 +68,7 @@ def test_container():
     data = ContractData()
     container = create_container()
     for name, value in {
-        "uploadFileUseCase": data.ingest,
+        "ingestDocumentUseCase": data.ingest,
         "queryKnowledgeUseCase": data.search,
         "listDocumentsUseCase": data.list_documents,
         "getChunkDetailUseCase": data.get_chunk,
@@ -146,15 +146,14 @@ async def test_http_rejects_top_k_above_ten() -> None:
 async def test_http_dependency_failure_is_503() -> None:
     container = test_container()
     app = create_app(container)
-    container.use_cases.uploadFileUseCase.override(providers.Object(FailingUseCase()))
+    container.use_cases.ingestDocumentUseCase.override(providers.Object(FailingUseCase()))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
         response = await client.post(
             "/v1/documents",
-            data={"source_uri": "doc.md"},
-            files={"file": ("doc.md", b"# Doc", "text/markdown")},
+            json={"file_url": "/v1/files/test", "title": "Doc"},
         )
 
     assert response.status_code == 503

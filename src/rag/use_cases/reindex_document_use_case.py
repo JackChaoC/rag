@@ -1,4 +1,3 @@
-import hashlib
 from dataclasses import replace
 
 from rag.services.common.errors import DependencyError, NotFoundError
@@ -25,36 +24,27 @@ class ReindexDocumentUseCase:
         self.vectorService = vectorService
         self.publishIngestionDocumentTaskService = publishIngestionDocumentTaskService
 
-    async def execute(self, documentId, data=None):
+    async def execute(self, documentId, file_url=None):
         async with self.documentService.lock(documentId):
             current = await self.documentService.get(documentId)
             if current is None:
                 raise NotFoundError("document not found")
             if current.status in {DocumentStatus.DELETING, DocumentStatus.DELETED}:
                 raise ValueError("deleted document cannot be reindexed")
-            if data is None:
-                data = await self.fileService.read(current.file_path)
-            if not data:
-                raise ValueError("file is empty")
+            file = await self.fileService.fromUrl(file_url) if file_url else await self.fileService.get(current.file_id)
             version = current.current_version + 1
-            filePath = await self.fileService.store(
-                documentId, version, current.source_type, data
-            )
             updated = replace(
                 current,
-                file_path=filePath,
-                content_hash=hashlib.sha256(data).hexdigest(),
+                file_id=file.id,
+                file_path=file.file_path,
+                source_type=file.source_type,
+                content_hash=file.content_hash,
                 current_version=version,
                 status=DocumentStatus.PENDING,
                 last_error=None,
             )
+            await self.documentService.save(updated)
             try:
-                await self.documentService.save(updated)
-            except Exception:
-                await self.fileService.delete(filePath)
-                raise
-            try:
-                await self.fileService.delete(current.file_path)
                 await self.vectorService.deleteDocument(documentId)
                 await self.publishIngestionDocumentTaskService.publish(
                     IndexMessage(documentId, IndexOperation.REINDEX, version)

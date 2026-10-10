@@ -5,10 +5,25 @@
 -- 变更批次：26-09-30_0
 -- 变更来源：implement-regulations
 -- 落地状态：已实现
+CREATE TYPE "Team" AS ENUM ('wallet', 'member', 'devops', 'data', 'event');
+CREATE TABLE files (
+    id UUID PRIMARY KEY,
+    filename TEXT NOT NULL,
+    file_path TEXT NOT NULL UNIQUE,
+    source_type TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    size_bytes BIGINT NULL, -- Legacy sizes are unknown until the file is read.
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE documents (
     id UUID PRIMARY KEY,
-    source_uri TEXT NOT NULL UNIQUE,
-    title TEXT NULL,
+    file_id UUID NOT NULL REFERENCES files(id),
+    title TEXT NOT NULL CHECK (length(btrim(title)) > 0),
+    team "Team" NULL,
+    project TEXT NULL,
+    description TEXT NULL,
+    operator TEXT NULL,
     source_type TEXT NOT NULL CHECK (
         source_type IN ('markdown', 'text', 'pdf', 'word', 'excel', 'powerpoint', 'html')
     ),

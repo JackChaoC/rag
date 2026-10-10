@@ -197,12 +197,12 @@ Resources
 HTTP/MCP/Worker → UseCase → Service → Repository → Resource。
 LlamaIndex 封装在对应职责层，不设独立集成层或 Container。
 
-- 上传只存原文件、Document 管理记录和索引消息。
+- 上传接口只存原文件及 File 记录并返回 URL；创建文档接口接收 file_url 和文档信息，保存 Document 并发布索引消息。
 - Worker 读取原文件，自定义 NodeParser 沿用 main 的切分算法，使用官方 Ollama Embedding 与 QdrantVectorStore。
 - PG 不保存正文或 Chunk；Qdrant Node 保存全量 Chunk、document_id、chunk_index、H1/H2 与引用信息。
 - Chunk 列表、Chunk 详情与文本向量 Query 分开；检索不回 PG。
-- HTTP/MCP 旧契约保持，新加按文档列出 Chunk、按 Chunk ID 读取详情。
-- 独立数据库/Collection/队列，旧数据不迁移；更新允许暂时不可搜索。
+- HTTP/MCP 使用 file_url 引用原文件，移除 Source URI；支持原文件在线查看/下载、按文档列出 Chunk、按 Chunk ID 读取详情。
+- 独立数据库/Collection/队列；文件分离迁移保留当前分支已有文件和索引，更新允许暂时不可搜索。
 - RAG 服务不生成答案，答案生成由外部 Agent 负责。
 
 当前工程契约以 [regulations/index.md](regulations/index.md) 分类定义为准；

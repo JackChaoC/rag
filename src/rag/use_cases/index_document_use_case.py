@@ -38,11 +38,13 @@ class IndexDocumentUseCase:
             await self.documentService.set_status(document.id, DocumentStatus.INDEXING)
             try:
                 await self.vectorService.deleteDocument(document.id)
-                metadata = dict(document.metadata)
+                metadata = {k: v for k, v in document.metadata.items() if k != "source_uri"}
                 metadata.update(
                     document_id=str(document.id),
                     version=document.current_version,
-                    source_uri=document.source_uri,
+                    file_url=f"/v1/files/{document.file_id}",
+                    team=document.team, project=document.project,
+                    description=document.description, operator=document.operator,
                     title=document.title or "",
                 )
                 llamaindex_documents = await self.readerService.read(

@@ -18,7 +18,7 @@ uv run rag-worker
 ```
 
 Compose is unchanged from main; create the additional database explicitly.
-Do not recreate an existing container to rename its database. The migration refuses to convert a database containing documents.
+Do not recreate an existing container to rename its database. The initial LlamaIndex migration requires an empty database; the later file/document migration preserves existing LlamaIndex documents and file paths.
 The historical initial migration remains intact; the new revision removes the
 empty chunks table and replaces document content with a file path.
 
@@ -32,7 +32,7 @@ Defaults isolate the branch:
 - Database: `rag_llama_index`.
 - Collection: `rag_llama_index_nodes`, lazily created using the actual embedding dimension.
 - RabbitMQ namespace: `rag.llama-index.indexing`.
-- Files: `statics/<document UUID>/<version>.<extension>`; not publicly mounted.
+- Files: `statics/<file UUID>/1.<extension>` (legacy paths are retained); not publicly mounted.
   API and worker must share this directory.
 
 Console: http://127.0.0.1:8123/ui/ · Swagger: http://127.0.0.1:8123/docs ·
@@ -53,7 +53,8 @@ worker handlers delegate to use cases. There is no LlamaIndex container or
 integration layer. HTTP alone uses FastAPI Depends. MCP resolves the same
 use-case providers explicitly.
 
-- `UploadFileUseCase`: store raw bytes, create document, confirm publication.
+- `UploadFileUseCase`: store raw bytes and a file record; return a file URL.
+- `IngestDocumentUseCase`: resolve that URL, create the document, confirm publication.
 - `IndexDocumentUseCase`: ReaderService → SplitterService → EmbeddingService →
   VectorService. Worker owns this processing.
 - `ReaderService`: Markdown/TXT retain heading markers; PDF uses LlamaIndex PDFReader.
@@ -66,7 +67,7 @@ use-case providers explicitly.
   No PostgreSQL hydration/validation or candidate over-fetch.
 
 Node IDs are UUID5(document ID, version:chunk_index). Qdrant stores full text,
-source association, document_id, version, chunk_index, source_uri, title,
+source association, document_id, version, chunk_index, file_url, title, team, project, description, operator,
 heading_h1/heading_h2 and line ranges. Only title and headings participate in
 default metadata-plus-text embedding; technical/user metadata remains available
 but is excluded from embedding. Line ranges refer to the normalized reader text,
@@ -82,11 +83,23 @@ Existing HTTP routes, MCP tools and frontend remain available. Two HTTP reads ar
 The existing `GET /v1/documents/{document_id}/chunks/{chunk_id}` and MCP
 `get_document_chunk(document_id, chunk_id)` still check Node ownership without PG.
 
-Upload supports Markdown, TXT and PDF. Duplicate upload reuses the document;
-different bytes for the same source URI require reindex. Reindex always advances
-the version (including a no-file rebuild), deletes the old file and Nodes, and
-queues the new version. Old results need not remain available. Search does not
-check PG status, so partial Nodes may be visible during multi-batch writes.
+Upload supports Markdown, TXT and PDF. First call `POST /v1/files` with multipart
+`file`; use its relative `url` as `file_url` in JSON `POST /v1/documents`.
+`title` is required and nonblank. Optional fields: `team` (wallet, member, devops,
+data, event), `project`, `description`, `operator`, and object `metadata`.
+Source URI is removed. Only registered upload URLs are accepted; no remote fetching.
+
+Open the file URL to view Markdown/TXT as plain text or PDF in the browser.
+Append `?download=true` for an attachment download with the original filename.
+The console uploads on selection and submits indexing after upload succeeds.
+
+Repeating ingest with the same file URL and fields reuses the document.
+Reindex takes optional JSON `file_url`, advances the version, deletes old Nodes,
+and queues the new version. Uploaded files are retained on replacement/document deletion.
+Search does not check PG status, so partial Nodes may be visible during writes.
+Legacy titles are filled from filenames when absent; existing Nodes retain their vectors
+and receive file links at read time without a re-embedding run.
+
 
 Per-document PostgreSQL advisory locks serialize API/worker operations across
 processes. Lock connections use a separate unpooled engine so waiting locks do

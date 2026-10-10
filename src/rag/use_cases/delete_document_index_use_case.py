@@ -25,5 +25,4 @@ class DeleteDocumentIndexUseCase:
             if message.version > document.current_version:
                 raise RuntimeError("message version is newer than document")
             await self.vectorService.deleteDocument(document.id)
-            await self.fileService.delete(document.file_path)
             await self.documentService.set_status(document.id, DocumentStatus.DELETED)

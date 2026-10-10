@@ -1,9 +1,7 @@
-import json
-from pathlib import Path
 from uuid import UUID
 
 from dependency_injector.wiring import inject
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Body
 
 from rag.api.http.dependencies import (
     DeleteDocumentDep,
@@ -13,9 +11,8 @@ from rag.api.http.dependencies import (
     ListDocumentsDep,
     ReindexDocumentDep,
 )
-from rag.api.http.schemas import ChunkResponse, DocumentResponse, ErrorResponse
+from rag.api.http.schemas import ChunkResponse, DocumentResponse, ErrorResponse, DocumentRequest, ReindexRequest
 from rag.services.common.errors import NotFoundError
-from rag.services.documents.types.document import SourceType
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -33,18 +30,9 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 @inject
 async def ingest_document(
     use_case: IngestDocumentDep,
-    file: UploadFile = File(...),
-    source_uri: str = Form(...),
-    title: str | None = Form(None),
-    metadata: str = Form("{}"),
+    body: DocumentRequest,
 ) -> DocumentResponse:
-    result = await use_case.execute(
-        await file.read(),
-        source_uri,
-        _source_type(file.filename),
-        title,
-        _metadata(metadata),
-    )
+    result = await use_case.execute(**body.model_dump())
     return _document_response(result)
 
 
@@ -53,9 +41,9 @@ async def ingest_document(
 async def reindex_document(
     document_id: UUID,
     use_case: ReindexDocumentDep,
-    file: UploadFile | None = File(None),
+    body: ReindexRequest | None = Body(None),
 ) -> DocumentResponse:
-    result = await use_case.execute(document_id, await file.read() if file else None)
+    result = await use_case.execute(document_id, body.file_url if body else None)
     return _document_response(result)
 
 
@@ -96,35 +84,6 @@ async def list_chunks(document_id: UUID, use_case: ListDocumentChunksDep):
     ]
 
 
-def _metadata(value: str) -> dict:
-    try:
-        result = json.loads(value)
-    except json.JSONDecodeError as exc:
-        raise ValueError("metadata must be valid JSON") from exc
-    if not isinstance(result, dict):
-        raise ValueError("metadata must be a JSON object")
-    return result
-
-
-def _source_type(filename: str | None) -> SourceType:
-    suffix = Path(filename or "").suffix.lower()
-    mapping = {
-        ".md": SourceType.MARKDOWN,
-        ".markdown": SourceType.MARKDOWN,
-        ".txt": SourceType.TEXT,
-        ".pdf": SourceType.PDF,
-    }
-    if suffix not in mapping:
-        raise ValueError(f"unsupported file extension: {suffix or '<none>'}")
-    return mapping[suffix]
-
 
 def _document_response(value) -> DocumentResponse:
-    return DocumentResponse(
-        document_id=value.document_id,
-        source_uri=value.source_uri,
-        title=value.title,
-        version=value.version,
-        status=value.status.value,
-        metadata=value.metadata,
-    )
+    return DocumentResponse.model_validate(value, from_attributes=True)

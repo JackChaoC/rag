@@ -21,7 +21,7 @@ class VectorQueryService:
                     chunk.document_id,
                     float(hit.score or 0),
                     chunk.content,
-                    chunk.source_uri,
+                    chunk.file_url,
                     chunk.title,
                     chunk.start_line,
                     chunk.end_line,

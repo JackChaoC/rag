@@ -12,8 +12,8 @@ class DocumentService:
     async def get(self, documentId):
         return await self.documentRepository.get(documentId)
 
-    async def get_by_source_uri(self, source_uri):
-        return await self.documentRepository.get_by_source_uri(source_uri)
+    async def get_by_file_id(self, file_id):
+        return await self.documentRepository.get_by_file_id(file_id)
 
     async def list(self):
         return await self.documentRepository.list()
@@ -31,9 +31,11 @@ class DocumentService:
     def summarize(document):
         return DocumentSummary(
             document.id,
-            document.source_uri,
+            f"/v1/files/{document.file_id}",
             document.title,
             document.current_version,
             document.status,
             document.metadata,
+            document.team, document.project, document.description, document.operator,
+            document.last_error,
         )
