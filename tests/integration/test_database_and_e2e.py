@@ -47,9 +47,10 @@ async def test_database_constraints_and_document_lock():
                 Document(uuid4(), uuid4(), "Invalid file reference", SourceType.TEXT, "test.txt", "hash")
             )
         assert (await repository.get(doc.id)).file_path == "test.md"
-        for q in ("100%_", "LOGIN", "Jack", "member", str(doc.id)[:8]):
+        for q in ("100%_", "TEST", "Jack", "member", str(doc.id)[:8]):
             assert doc.id in [d.id for d in await repository.list(q=q)]
         assert doc.id not in [d.id for d in await repository.list(q="100%_missing")]
+        assert doc.id not in [d.id for d in await repository.list(q="LOGIN")]
         assert doc.id in [d.id for d in await repository.list(q="test", team=Team.MEMBER, project="account", operator="Jack", status=DocumentStatus.PENDING)]
         assert doc.id not in [d.id for d in await repository.list(q="test", team=Team.WALLET)]
         assert doc.id not in [d.id for d in await repository.list(project="acc")]

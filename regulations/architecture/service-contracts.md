@@ -15,7 +15,7 @@
 - `team` 枚举为 wallet、member、devops、data、event；其他新增字段可空。移除 Source URI 输入和输出，检索引用改用 `file_url`。
 - `POST /v1/documents/{document_id}/reindex`：可选 JSON `file_url`；有 URL 时切换到已上传文件，无 URL 时使用现有文件。增加版本、清除旧 Nodes 并发布任务，返回 `202`。原上传文件独立保留。
 - `DELETE /v1/documents/{document_id}`：把文档置为 `deleting` 并确认发布 Delete 消息后返回 `202`。
-- `GET /v1/documents`：返回文档摘要列表，不返回完整正文。可选 `q` 对标题、描述、项目、操作人、团队和 ID 做不区分大小写的字面子串匹配（`%`、`_` 不作为通配符）；`team`、`status`、`project`、`operator` 精确筛选，各条件以 AND 组合。空白文本忽略，无匹配返回 `[]`；不传参数兼容原列表。筛选在 PostgreSQL 执行。
+- `GET /v1/documents`：返回文档摘要列表，不返回完整正文。可选 `q` 对标题、项目、操作人、团队和 ID 做不区分大小写的字面子串匹配（`%`、`_` 不作为通配符）；`team`、`status`、`project`、`operator` 精确筛选，各条件以 AND 组合。空白文本忽略，无匹配返回 `[]`；不传参数兼容原列表。筛选在 PostgreSQL 执行。
 - `GET /v1/documents/{document_id}/chunks`：按 chunk_index 返回指定文档全部 Chunk。
 - `GET /v1/chunks/{chunk_id}`：按 Chunk ID 返回全量内容与来源。
 - `GET /v1/documents/{document_id}/chunks/{chunk_id}`：只在 Chunk 属于指定 Document 时返回内容与引用信息。

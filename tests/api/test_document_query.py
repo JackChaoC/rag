@@ -17,10 +17,12 @@ async def test_document_query_combines_filters_and_matches_information(appContai
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(appContainer)), base_url='http://test') as client:
         docs = (await client.get('/v1/documents')).json()
         assert len(docs) == 2
-        for query in ['ACCOUNT', 'Login', 'Jack', 'member', '100%_', docs[0]['document_id'][:8]]:
+        for query in ['ACCOUNT', 'Jack', 'member', docs[0]['document_id'][:8]]:
             response = await client.get('/v1/documents', params={'q': query})
             assert response.status_code == 200
             assert [d['title'] for d in response.json()] == ['Account guide']
+        for query in ['Login', '100%_']:
+            assert (await client.get('/v1/documents', params={'q': query})).json() == []
         params = {'q': ' guide ', 'team': 'member', 'status': 'pending', 'project': 'account', 'operator': 'Jack'}
         assert len((await client.get('/v1/documents', params=params)).json()) == 1
         for change in [{'status': 'ready'}, {'team': 'wallet'}, {'project': 'acc'}, {'operator': 'jack'}]:
@@ -38,7 +40,7 @@ async def test_document_query_combines_filters_and_matches_information(appContai
         list_documents_provider=appContainer.use_cases.listDocumentsUseCase,
     )
     async with Client(server) as client:
-        response = await client.call_tool("list_documents", {"q": "Login", "team": "member"})
+        response = await client.call_tool("list_documents", {"q": "Account", "team": "member"})
         assert not response.is_error
         assert "Account guide" in str(response.structured_content)
         assert "Wallet guide" not in str(response.structured_content)

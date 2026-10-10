@@ -41,7 +41,7 @@ class DocumentRepository:
     async def list(self, q=None, team=None, status=None, project=None, operator=None):
         statement = select(DocumentRecord)
         if q:
-            columns = [DocumentRecord.title, DocumentRecord.description,
+            columns = [DocumentRecord.title,
                        DocumentRecord.project, DocumentRecord.operator,
                        cast(DocumentRecord.team, String), cast(DocumentRecord.id, String)]
             statement = statement.where(or_(

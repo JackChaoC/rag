@@ -32,7 +32,7 @@ class MemoryDocumentRepository:
         return [d for d in self.documents.values()
                 if all(getattr(d, key) == value for key, value in filters.items())
                 and (not q or any(q.casefold() in str(value or "").casefold()
-                     for value in (d.title, d.description, d.project, d.operator,
+                     for value in (d.title, d.project, d.operator,
                                    d.team.value if d.team else None, d.id)))]
 
     async def create(self, document):
